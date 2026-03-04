@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>每日规划</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="date-line">
+        <span class="prompt">&gt;</span>
+        <span id="date-display" class="date-text"></span>
+      </div>
+      <div class="progress-section">
+        <span id="progress-text" class="progress-text">0 / 0 已完成</span>
+        <div class="progress-bar">
+          <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+        </div>
+      </div>
+    </header>
+
+    <div class="input-section">
+      <span class="prompt">&gt;</span>
+      <input
+        id="task-input"
+        class="task-input"
+        type="text"
+        placeholder="添加新任务..."
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button id="add-btn" class="add-btn">+</button>
+    </div>
+
+    <div id="tag-filter-bar" class="tag-filter-bar hidden"></div>
+
+    <ul id="task-list" class="task-list"></ul>
+
+    <div id="empty-state" class="empty-state">
+      <span class="empty-icon">_</span>
+      <p>今日暂无任务，输入上方添加</p>
+    </div>
+
+    <div id="all-done-banner" class="all-done-banner hidden">
+      全部完成！今天做得很好。
+    </div>
+
+    <nav class="nav-section">
+      <button id="prev-btn" class="nav-btn">← 昨天</button>
+      <div class="export-group">
+        <button id="export-json-btn" class="export-btn" title="导出全部数据 (JSON)">导出 JSON</button>
+        <button id="export-text-btn" class="export-btn" title="导出今日任务 (TXT)">导出 TXT</button>
+      </div>
+      <button id="next-btn" class="nav-btn">明天 →</button>
+    </nav>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
