@@ -7,54 +7,101 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="container">
-    <header class="header">
-      <div class="date-line">
-        <span class="prompt">&gt;</span>
-        <span id="date-display" class="date-text"></span>
-      </div>
-      <div class="progress-section">
-        <span id="progress-text" class="progress-text">0 / 0 已完成</span>
-        <div class="progress-bar">
-          <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+  <div class="app-layout">
+
+    <!-- 左栏：长期目标 -->
+    <aside class="panel-goals">
+      <!-- 面板标题（小屏可点击折叠） -->
+      <div class="panel-goals-toggle">
+        <div class="panel-header">
+          <span class="prompt" style="color:var(--accent)">&gt;</span>
+          <span class="panel-title">长期目标</span>
         </div>
+        <span class="toggle-arrow">▼</span>
       </div>
-    </header>
 
-    <div class="input-section">
-      <span class="prompt">&gt;</span>
-      <input
-        id="task-input"
-        class="task-input"
-        type="text"
-        placeholder="添加新任务..."
-        autocomplete="off"
-        spellcheck="false"
-      />
-      <button id="add-btn" class="add-btn">+</button>
-    </div>
-
-    <div id="tag-filter-bar" class="tag-filter-bar hidden"></div>
-
-    <ul id="task-list" class="task-list"></ul>
-
-    <div id="empty-state" class="empty-state">
-      <span class="empty-icon">_</span>
-      <p>今日暂无任务，输入上方添加</p>
-    </div>
-
-    <div id="all-done-banner" class="all-done-banner hidden">
-      全部完成！今天做得很好。
-    </div>
-
-    <nav class="nav-section">
-      <button id="prev-btn" class="nav-btn">← 昨天</button>
-      <div class="export-group">
-        <button id="export-json-btn" class="export-btn" title="导出全部数据 (JSON)">导出 JSON</button>
-        <button id="export-text-btn" class="export-btn" title="导出今日任务 (TXT)">导出 TXT</button>
+      <!-- 类型切换器 -->
+      <div class="goals-type-switcher">
+        <button id="type-btn-goal" class="type-btn" data-type="goal">◆ Goal</button>
+        <button id="type-btn-todo" class="type-btn active-todo" data-type="todo">□ Todo</button>
       </div>
-      <button id="next-btn" class="nav-btn">明天 →</button>
-    </nav>
+
+      <!-- 输入区 -->
+      <div class="goals-input-section">
+        <span class="prompt" style="color:var(--accent)">&gt;</span>
+        <input
+          id="goal-input"
+          class="goals-task-input"
+          type="text"
+          placeholder="添加目标/待办（#标签 @日期）..."
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="goal-add-btn" class="goals-add-btn">+</button>
+      </div>
+
+      <!-- 条目列表 -->
+      <ul id="goals-list" class="goals-list"></ul>
+
+      <!-- 空状态 -->
+      <div id="goals-empty" class="goals-empty-state hidden">
+        <p>暂无长期目标，输入上方添加</p>
+      </div>
+    </aside>
+
+    <!-- 右栏：每日任务 -->
+    <main class="panel-daily">
+      <div class="container">
+        <header class="header">
+          <div class="date-line">
+            <span class="prompt">&gt;</span>
+            <span id="date-display" class="date-text"></span>
+          </div>
+          <div class="progress-section">
+            <span id="progress-text" class="progress-text">0 / 0 已完成</span>
+            <div class="progress-bar">
+              <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+            </div>
+          </div>
+        </header>
+
+        <div class="input-section">
+          <span class="prompt">&gt;</span>
+          <input
+            id="task-input"
+            class="task-input"
+            type="text"
+            placeholder="添加新任务..."
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button id="add-btn" class="add-btn">+</button>
+        </div>
+
+        <div id="tag-filter-bar" class="tag-filter-bar hidden"></div>
+
+        <ul id="task-list" class="task-list"></ul>
+
+        <div id="empty-state" class="empty-state">
+          <span class="empty-icon">_</span>
+          <p>今日暂无任务，输入上方添加</p>
+        </div>
+
+        <div id="all-done-banner" class="all-done-banner hidden">
+          全部完成！今天做得很好。
+        </div>
+
+        <nav class="nav-section">
+          <button id="prev-btn" class="nav-btn">← 昨天</button>
+          <div class="export-group">
+            <button id="export-json-btn" class="export-btn" title="导出全部数据 (JSON)">导出 JSON</button>
+            <button id="export-text-btn" class="export-btn" title="导出今日任务 (TXT)">导出 TXT</button>
+          </div>
+          <button id="next-btn" class="nav-btn">明天 →</button>
+        </nav>
+      </div>
+    </main>
+
   </div>
 
   <script src="app.js"></script>

@@ -6,6 +6,22 @@
   --accent-bg-task: #00ff8818;
   --accent-faint: #00ff8815;
   --accent-mid: #00ff8830;
+
+  /* 语义状态色 */
+  --warn:              #ffaa00;
+  --warn-dim:          #ffaa0055;
+  --warn-bg:           #ffaa0010;
+  --danger:            #ff4444;
+  --danger-dim:        #ff444455;
+  --danger-bg:         #ff444410;
+
+  /* 布局尺寸变量 */
+  --panel-goals-width: 300px;
+  --panel-gap:         24px;
+  --panel-daily-max:   640px;
+
+  /* 进度条尺寸 */
+  --mini-progress-height: 3px;
 }
 
 * {
@@ -421,4 +437,428 @@ body {
 .nav-btn:hover {
   color: var(--accent);
   border-color: var(--accent-dim);
+}
+
+/* ── 双栏布局 ────────────────────────────────────────────── */
+
+.app-layout {
+  display: flex;
+  gap: var(--panel-gap);
+  align-items: flex-start;
+  width: 100%;
+  max-width: calc(var(--panel-goals-width) + var(--panel-gap) + var(--panel-daily-max));
+}
+
+.panel-goals {
+  width: var(--panel-goals-width);
+  flex-shrink: 0;
+}
+
+.panel-daily {
+  flex: 1;
+  min-width: 0;
+  max-width: var(--panel-daily-max);
+}
+
+/* ── 左栏面板标题 ────────────────────────────────────────── */
+
+.panel-goals-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-title {
+  font-size: 13px;
+  color: #888;
+  letter-spacing: 0.05em;
+}
+
+.toggle-arrow {
+  font-size: 11px;
+  color: #444;
+  display: none;
+}
+
+/* ── 类型切换器 ──────────────────────────────────────────── */
+
+.goals-type-switcher {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.type-btn {
+  flex: 1;
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: #555;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.type-btn.active-goal { color: var(--accent);   border-color: var(--accent-dim);   }
+.type-btn.active-todo { color: var(--accent); border-color: var(--accent-dim); }
+
+/* ── 左栏输入区 ──────────────────────────────────────────── */
+
+.goals-input-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 20px;
+  transition: border-color 0.2s;
+}
+
+.goals-input-section:focus-within {
+  border-color: var(--accent);
+}
+
+.goals-task-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e0e0e0;
+  font-family: inherit;
+  font-size: 15px;
+  caret-color: var(--accent);
+}
+
+.goals-task-input::placeholder { color: #444; }
+
+.goals-add-btn {
+  background: transparent;
+  border: 1px solid #333;
+  color: var(--accent);
+  font-size: 18px;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: background-color 0.2s, border-color 0.2s;
+  padding: 0;
+}
+
+.goals-add-btn:hover {
+  background-color: var(--accent);
+  color: #0f0f0f;
+  border-color: var(--accent);
+}
+
+/* ── 条目列表基础样式 ────────────────────────────────────── */
+
+.goals-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.goal-item {
+  background-color: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+  position: relative;
+}
+
+.goal-item:hover { border-color: #3a3a3a; background-color: #1e1e1e; }
+.goal-item:hover .goal-delete-btn { opacity: 1; }
+
+.goal-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.goal-prefix {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #777;
+  user-select: none;
+}
+
+.goal-text {
+  flex: 1;
+  font-size: 15px;
+  color: #e0e0e0;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.goal-delete-btn {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  color: #666;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.2s, opacity 0.2s;
+  flex-shrink: 0;
+  font-family: inherit;
+}
+
+.goal-delete-btn:hover { color: #ff4444; }
+
+/* Todo 类型样式 */
+.goal-item.type-todo .goal-prefix { color: #777; }
+.goal-item.type-todo:hover .goal-prefix { color: #999; }
+
+/* Todo 完成态 */
+.goal-item.todo-done { border-left: 2px solid var(--accent-dim); background-color: #161616; }
+.goal-item.todo-done .goal-prefix { color: var(--accent); }
+.goal-item.todo-done .goal-text { color: #555; text-decoration: line-through; }
+
+/* 分组标题 */
+.goals-group-header {
+  font-size: 12px;
+  color: #666;
+  padding: 8px 0 4px;
+  letter-spacing: 0.08em;
+  user-select: none;
+}
+
+/* 空状态 */
+.goals-empty-state {
+  text-align: center;
+  padding: 32px 0;
+  color: #666;
+  font-size: 13px;
+}
+
+/* 入场动画 */
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.goal-item.entering { animation: slideInLeft 0.3s ease; }
+
+/* ── Phase 3：置顶按钮 ───────────────────────────────────── */
+
+.goal-pin-btn {
+  background: transparent;
+  border: none;
+  color: #333;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 4px;
+  flex-shrink: 0;
+  font-family: inherit;
+  transition: color 0.2s;
+  line-height: 1;
+}
+
+.goal-pin-btn:hover { color: var(--accent); }
+.goal-item.pinned .goal-pin-btn { color: var(--accent); }
+
+/* ── 响应式：小屏折叠左栏 ────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .app-layout {
+    flex-direction: column;
+    max-width: 640px;
+    gap: 0;
+  }
+
+  .panel-goals {
+    width: 100%;
+    padding-top: 0;
+    padding-bottom: 0;
+    max-height: 52px;
+    overflow: hidden;
+    transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    border-bottom: 1px solid #1a1a1a;
+    margin-bottom: 16px;
+  }
+
+  .panel-goals.expanded {
+    max-height: 600px;
+    padding-bottom: 16px;
+  }
+
+  .panel-goals-toggle {
+    cursor: pointer;
+    padding: 16px 0;
+    margin-bottom: 0;
+  }
+
+  .toggle-arrow {
+    display: inline-block !important;
+    color: #555;
+    font-size: 11px;
+    transition: transform 0.3s ease;
+  }
+
+  .panel-goals.expanded .toggle-arrow {
+    transform: rotate(180deg);
+  }
+
+  .panel-daily {
+    max-width: 100%;
+  }
+}
+
+/* ── Phase 2：Goal 类型特有样式 ──────────────────────────── */
+
+.goal-item.type-goal .goal-prefix { color: var(--accent); }
+.goal-item.type-goal.goal-complete .goal-prefix { color: var(--accent); }
+
+.goal-progress-area {
+  margin-top: 8px;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.goal-progress-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.goal-progress-bar {
+  flex: 1;
+  height: var(--mini-progress-height);
+  background-color: #2a2a2a;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.goal-progress-fill {
+  height: 100%;
+  background-color: var(--accent);
+  border-radius: 2px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 4px var(--accent-dim);
+}
+
+.goal-item.goal-complete .goal-progress-fill {
+  background-color: var(--accent);
+  box-shadow: 0 0 6px var(--accent-dim);
+}
+
+.goal-progress-text {
+  font-size: 12px;
+  color: #999;
+  min-width: 32px;
+  text-align: right;
+  flex-shrink: 0;
+  transition: color 0.2s;
+}
+
+.goal-adjust-row {
+  display: flex;
+  gap: 4px;
+}
+
+.goal-adjust-btn {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: #888;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, background-color 0.2s;
+}
+
+.goal-adjust-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background-color: var(--accent-bg);
+}
+
+/* ── Phase 2：截止日期 badge ─────────────────────────────── */
+
+.due-badge {
+  display: inline-block;
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background-color: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  margin-top: 4px;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.due-badge.due-normal { color: #888; border-color: #2a2a2a; }
+.due-badge.due-soon   { color: var(--warn);   border-color: var(--warn-dim);   animation: duePulse 1.5s ease-in-out infinite; }
+.due-badge.due-today  { color: var(--warn);   border-color: var(--warn-dim);   animation: duePulse 0.8s ease-in-out infinite; }
+.due-badge.overdue    { color: var(--danger); border-color: var(--danger-dim); background-color: var(--danger-bg); }
+
+/* ── Phase 2：动画 keyframes ─────────────────────────────── */
+
+@keyframes duePulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+
+@keyframes progressPulse {
+  0%   { transform: scale(1); color: #999; }
+  40%  { transform: scale(1.2); color: var(--accent); }
+  100% { transform: scale(1); color: #999; }
+}
+.goal-progress-text.updating { animation: progressPulse 0.3s ease; }
+
+@keyframes goalCompleteGlow {
+  0%   { box-shadow: none;                      border-color: #2a2a2a; }
+  50%  { box-shadow: 0 0 12px var(--accent-dim);  border-color: var(--accent); }
+  100% { box-shadow: 0 0 4px var(--accent-faint); border-color: var(--accent-dim); }
+}
+/* 静态终态：已完成 Goal 的边框光晕 */
+.goal-item.goal-complete { border-color: var(--accent-dim); box-shadow: 0 0 4px var(--accent-faint); }
+/* 仅首次达到 100% 时触发辉光动画 */
+.goal-item.just-completed { animation: goalCompleteGlow 0.6s ease forwards; }
+
+@keyframes fadeOut {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-4px); }
+}
+.goal-complete-banner.hiding { animation: fadeOut 0.3s ease forwards; }
+
+.goal-complete-banner {
+  margin-top: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--accent-dim);
+  border-radius: 6px;
+  background-color: var(--accent-bg);
+  color: var(--accent);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  animation: fadeIn 0.4s ease;
+}
+
+@keyframes strikeThrough {
+  from { text-decoration-color: transparent; }
+  to   { text-decoration-color: #555; }
+}
+/* 仅首次勾选时触发划线动画 */
+.goal-item.just-toggled .goal-text {
+  animation: strikeThrough 0.25s ease forwards;
 }
