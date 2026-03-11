@@ -20,8 +20,6 @@
   --panel-gap:         24px;
   --panel-daily-max:   640px;
 
-  /* 进度条尺寸 */
-  --mini-progress-height: 3px;
 }
 
 * {
@@ -311,22 +309,19 @@ body {
   background: transparent;
   border: none;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   padding: 0 4px;
   flex-shrink: 0;
-  transition: opacity 0.2s, transform 0.1s;
+  transition: transform 0.1s, opacity 0.2s;
   line-height: 1;
   font-family: inherit;
+  opacity: 0.85;
 }
 
 .priority-btn:hover {
   opacity: 1;
-  transform: scale(1.2);
+  transform: scale(1.3);
 }
-
-.priority-high  { color: #ff4444; }
-.priority-medium { color: #ffaa00; }
-.priority-low   { color: #4488ff; }
 
 /* 标签 */
 .tag-list {
@@ -727,72 +722,6 @@ body {
 .goal-item.type-goal .goal-prefix { color: var(--accent); }
 .goal-item.type-goal.goal-complete .goal-prefix { color: var(--accent); }
 
-.goal-progress-area {
-  margin-top: 8px;
-  padding-left: 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.goal-progress-bar-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.goal-progress-bar {
-  flex: 1;
-  height: var(--mini-progress-height);
-  background-color: #2a2a2a;
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.goal-progress-fill {
-  height: 100%;
-  background-color: var(--accent);
-  border-radius: 2px;
-  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 4px var(--accent-dim);
-}
-
-.goal-item.goal-complete .goal-progress-fill {
-  background-color: var(--accent);
-  box-shadow: 0 0 6px var(--accent-dim);
-}
-
-.goal-progress-text {
-  font-size: 12px;
-  color: #999;
-  min-width: 32px;
-  text-align: right;
-  flex-shrink: 0;
-  transition: color 0.2s;
-}
-
-.goal-adjust-row {
-  display: flex;
-  gap: 4px;
-}
-
-.goal-adjust-btn {
-  background: transparent;
-  border: 1px solid #2a2a2a;
-  color: #888;
-  font-family: inherit;
-  font-size: 12px;
-  padding: 1px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: color 0.2s, border-color 0.2s, background-color 0.2s;
-}
-
-.goal-adjust-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent-dim);
-  background-color: var(--accent-bg);
-}
 
 /* ── Phase 2：截止日期 badge ─────────────────────────────── */
 
@@ -819,40 +748,6 @@ body {
   50%       { opacity: 0.35; }
 }
 
-@keyframes progressPulse {
-  0%   { transform: scale(1); color: #999; }
-  40%  { transform: scale(1.2); color: var(--accent); }
-  100% { transform: scale(1); color: #999; }
-}
-.goal-progress-text.updating { animation: progressPulse 0.3s ease; }
-
-@keyframes goalCompleteGlow {
-  0%   { box-shadow: none;                      border-color: #2a2a2a; }
-  50%  { box-shadow: 0 0 12px var(--accent-dim);  border-color: var(--accent); }
-  100% { box-shadow: 0 0 4px var(--accent-faint); border-color: var(--accent-dim); }
-}
-/* 静态终态：已完成 Goal 的边框光晕 */
-.goal-item.goal-complete { border-color: var(--accent-dim); box-shadow: 0 0 4px var(--accent-faint); }
-/* 仅首次达到 100% 时触发辉光动画 */
-.goal-item.just-completed { animation: goalCompleteGlow 0.6s ease forwards; }
-
-@keyframes fadeOut {
-  from { opacity: 1; transform: translateY(0); }
-  to   { opacity: 0; transform: translateY(-4px); }
-}
-.goal-complete-banner.hiding { animation: fadeOut 0.3s ease forwards; }
-
-.goal-complete-banner {
-  margin-top: 6px;
-  padding: 5px 10px;
-  border: 1px solid var(--accent-dim);
-  border-radius: 6px;
-  background-color: var(--accent-bg);
-  color: var(--accent);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  animation: fadeIn 0.4s ease;
-}
 
 @keyframes strikeThrough {
   from { text-decoration-color: transparent; }
@@ -861,4 +756,91 @@ body {
 /* 仅首次勾选时触发划线动画 */
 .goal-item.just-toggled .goal-text {
   animation: strikeThrough 0.25s ease forwards;
+}
+
+/* ── 拖拽复制功能 ─────────────────────────────────────────── */
+
+/* 可拖拽光标 + 禁用触摸默认行为（防止拖拽时触发页面滚动） */
+.goal-item {
+  touch-action: none;
+  cursor: grab;
+}
+
+.goal-item:active {
+  cursor: grabbing;
+}
+
+/* 拖拽进行中：禁止全局文字选中 */
+.dragging-active {
+  user-select: none;
+}
+
+/* 来源事项拖拽中变淡 */
+.goal-item.drag-source {
+  opacity: 0.35;
+  transform: scale(0.97);
+  border-color: var(--accent-dim) !important;
+  transition: opacity 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+
+/* 浮动幽灵卡片（跟随鼠标） */
+.drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.88) rotate(-2deg);
+  opacity: 0;
+  padding: 7px 14px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #0f0f0f;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', 'Courier New', 'Consolas', monospace;
+  box-shadow: 0 8px 28px rgba(0, 255, 136, 0.45), 0 2px 8px rgba(0, 0, 0, 0.5);
+  max-width: 210px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  will-change: left, top;
+}
+
+/* 幽灵入场：弹出 + 轻微旋转 */
+.drag-ghost--visible {
+  opacity: 0.95;
+  transform: translate(-50%, -50%) scale(1.06) rotate(-2deg);
+}
+
+/* 幽灵退场：缩小淡出 */
+.drag-ghost--exit {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.7) rotate(-5deg);
+}
+
+/* 放置区激活（悬停到右侧时）— outline 不可过渡，用 box-shadow 替代实现淡入效果 */
+#task-list.drop-zone--active {
+  box-shadow: 0 0 0 2px var(--accent-dim), inset 0 0 0 9999px rgba(0, 255, 136, 0.03);
+  border-radius: 8px;
+  transition: box-shadow 0.15s ease;
+}
+
+/* 空状态时也给整个区域高亮 */
+#task-list.drop-zone--active ~ #empty-state {
+  border: 1px dashed var(--accent-dim);
+  border-radius: 8px;
+  color: var(--accent);
+  background: rgba(0, 255, 136, 0.03);
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+/* 新任务拖入动画（弹簧效果） */
+@keyframes taskDropIn {
+  0%   { opacity: 0; transform: translateY(-22px) scale(0.92); background-color: rgba(0, 255, 136, 0.2); border-color: var(--accent); }
+  55%  { transform: translateY(4px) scale(1.02); background-color: rgba(0, 255, 136, 0.07); }
+  100% { opacity: 1; transform: translateY(0) scale(1); background-color: #1a1a1a; border-color: #2a2a2a; }
+}
+
+.task-item.task-drop-in {
+  animation: taskDropIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }

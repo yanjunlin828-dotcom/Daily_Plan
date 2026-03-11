@@ -2,8 +2,10 @@ const STORAGE_KEY = 'daily_plan_data';
 const GOALS_STORAGE_KEY = 'daily_plan_goals';
 const WEEK_DAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 const PRIORITY_LABELS = { high: '高', medium: '中', low: '低' };
-const PRIORITY_CHARS = { high: 'H', medium: 'M', low: 'L' };
 const PRIORITY_LABELS_EXPORT = { high: '[高]', medium: '[中]', low: '[低]' };
+const PRIORITY_COLORS = { high: '#e74c3c', medium: '#f1c40f', low: '#2ecc71' };
+const DRAG_HOLD_MS = 150;
+const DRAG_MOVE_THRESHOLD = 5;
 
 // ── 日期工具 ──────────────────────────────────────────────
 
@@ -79,7 +81,8 @@ function setPriority(id, priority) {
 function buildPriorityBtn(item, onChange) {
   const btn = document.createElement('button');
   btn.className = `priority-btn priority-${item.priority}`;
-  btn.textContent = `[${PRIORITY_CHARS[item.priority]}]`;
+  btn.innerHTML = '&#9679;';
+  btn.style.color = PRIORITY_COLORS[item.priority];
   btn.title = `优先级：${PRIORITY_LABELS[item.priority]}（点击切换）`;
   btn.addEventListener('click', e => {
     e.stopPropagation();
@@ -228,12 +231,17 @@ function renderTasks() {
   const allDone = total > 0 && doneCount === total;
   allDoneBanner.classList.toggle('hidden', !allDone);
 
-  // 列表渲染用过滤后的任务
-  const visibleTasks = getVisibleTasks();
+  // 列表渲染用过滤后的任务，按优先级排序（完成项置底）
+  const priority_order = { high: 0, medium: 1, low: 2 };
+  const visibleTasks = [...getVisibleTasks()].sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    return priority_order[a.priority] - priority_order[b.priority];
+  });
   list.innerHTML = '';
   visibleTasks.forEach(task => {
     const li = document.createElement('li');
     li.className = `task-item${task.done ? ' done' : ''}`;
+    li.dataset.taskId = task.id;
 
     if (task.id === state.completingId) {
       li.classList.add('completing');
@@ -255,8 +263,11 @@ function renderTasks() {
     deleteBtn.textContent = '×';
     deleteBtn.title = '删除任务';
 
+    let click_timer = null;
+
     textEl.addEventListener('dblclick', e => {
       e.stopPropagation();
+      clearTimeout(click_timer);
       startEditing(li, task, textEl);
     });
 
@@ -265,7 +276,8 @@ function renderTasks() {
       if (e.target.closest('.priority-btn')) return;
       if (e.target.closest('.tag-chip')) return;
       if (e.target.tagName === 'INPUT') return;
-      toggleTask(task.id);
+      clearTimeout(click_timer);
+      click_timer = setTimeout(() => toggleTask(task.id), 180);
     });
 
     deleteBtn.addEventListener('click', e => {
@@ -466,63 +478,27 @@ function setGoalPriority(id, priority) {
 
 function setNewItemType(type) {
   state.newItemType = type;
+  state.activeGoalView = type;
+  state.is_archive_collapsed = false;
   document.querySelectorAll('.type-btn').forEach(btn => {
     btn.classList.remove('active-goal', 'active-todo');
   });
   const active_btn = document.getElementById(`type-btn-${type}`);
   if (active_btn) active_btn.classList.add(`active-${type}`);
-}
-
-// ── 进度更新 ──────────────────────────────────────────────
-
-function updateGoalProgress(id, delta) {
-  const item = state.goals.find(g => g.id === id);
-  if (!item || item.type !== 'goal') return;
-
-  const new_progress = Math.min(100, Math.max(0, item.progress + delta));
-  const was_complete = item.progress === 100;
-  const is_now_complete = new_progress === 100;
-
-  state.goals = state.goals.map(g =>
-    g.id === id ? { ...g, progress: new_progress } : g
-  );
-  saveGoals();
   renderGoals();
-
-  // 触发进度数字跳动动画
-  const pct_el = document.querySelector(`[data-goal-id="${id}"] .goal-progress-text`);
-  if (pct_el) {
-    pct_el.classList.add('updating');
-    pct_el.addEventListener('animationend', () => pct_el.classList.remove('updating'), { once: true });
-  }
-
-  if (is_now_complete && !was_complete) {
-    const li = document.querySelector(`[data-goal-id="${id}"]`);
-    if (li) {
-      li.classList.add('just-completed');
-      li.addEventListener('animationend', () => li.classList.remove('just-completed'), { once: true });
-      showGoalCompleteBanner(li);
-    }
-  }
 }
 
-function showGoalCompleteBanner(li) {
-  const banner = document.createElement('div');
-  banner.className = 'goal-complete-banner';
-  banner.textContent = '● 目标达成！继续保持。';
-  li.appendChild(banner);
-
-  setTimeout(() => {
-    banner.classList.add('hiding');
-    banner.addEventListener('animationend', () => banner.remove(), { once: true });
-  }, 3000);
-}
 
 // ── 长期目标渲染 ──────────────────────────────────────────
 
-function buildGoalTodoItem(item) {
+// Goal 与 Todo 共用同一构建函数，通过 item.type 区分差异
+function buildGoalListItem(item) {
+  const is_todo = item.type === 'todo';
+
   const li = document.createElement('li');
-  li.className = `goal-item type-todo${item.done ? ' todo-done' : ''}`;
+  li.className = is_todo
+    ? `goal-item type-todo${item.done ? ' todo-done' : ''}`
+    : 'goal-item type-goal';
   li.dataset.goalId = item.id;
 
   const row = document.createElement('div');
@@ -530,7 +506,7 @@ function buildGoalTodoItem(item) {
 
   const prefix = document.createElement('span');
   prefix.className = 'goal-prefix';
-  prefix.textContent = item.done ? '[x]' : '[ ]';
+  prefix.textContent = is_todo ? (item.done ? '[x]' : '[ ]') : '●';
 
   const text_el = document.createElement('span');
   text_el.className = 'goal-text';
@@ -557,15 +533,12 @@ function buildGoalTodoItem(item) {
     }
   }
 
+  let click_timer = null;
+
   text_el.addEventListener('dblclick', e => {
     e.stopPropagation();
+    clearTimeout(click_timer);
     startGoalEditing(li, item, text_el);
-  });
-
-  li.addEventListener('click', e => {
-    if (e.target.closest('.goal-delete-btn')) return;
-    if (e.target.closest('.priority-btn')) return;
-    toggleGoalItem(item.id);
   });
 
   delete_btn.addEventListener('click', e => {
@@ -573,117 +546,15 @@ function buildGoalTodoItem(item) {
     deleteGoalItem(item.id);
   });
 
-  return li;
-}
-
-function buildGoalProgressArea(item) {
-  const area = document.createElement('div');
-  area.className = 'goal-progress-area';
-
-  const bar_row = document.createElement('div');
-  bar_row.className = 'goal-progress-bar-row';
-
-  const bar = document.createElement('div');
-  bar.className = 'goal-progress-bar';
-
-  const fill = document.createElement('div');
-  fill.className = 'goal-progress-fill';
-  fill.style.width = `${item.progress}%`;
-
-  const pct_text = document.createElement('span');
-  pct_text.className = 'goal-progress-text';
-  pct_text.textContent = `${item.progress}%`;
-
-  bar.appendChild(fill);
-  bar_row.appendChild(bar);
-  bar_row.appendChild(pct_text);
-
-  const adjust_row = document.createElement('div');
-  adjust_row.className = 'goal-adjust-row';
-
-  const btn_minus = document.createElement('button');
-  btn_minus.className = 'goal-adjust-btn';
-  btn_minus.textContent = '[-10%]';
-  btn_minus.title = '进度 -10%';
-
-  const btn_plus = document.createElement('button');
-  btn_plus.className = 'goal-adjust-btn';
-  btn_plus.textContent = '[+10%]';
-  btn_plus.title = '进度 +10%';
-
-  btn_minus.addEventListener('click', e => {
-    e.stopPropagation();
-    updateGoalProgress(item.id, -10);
-  });
-
-  btn_plus.addEventListener('click', e => {
-    e.stopPropagation();
-    updateGoalProgress(item.id, +10);
-  });
-
-  adjust_row.appendChild(btn_minus);
-  adjust_row.appendChild(btn_plus);
-
-  area.appendChild(bar_row);
-  area.appendChild(adjust_row);
-
-  return area;
-}
-
-function buildGoalItem(item) {
-  const li = document.createElement('li');
-  li.className = `goal-item type-goal${item.progress === 100 ? ' goal-complete' : ''}`;
-  li.dataset.goalId = item.id;
-
-  const row = document.createElement('div');
-  row.className = 'goal-item-row';
-
-  const prefix = document.createElement('span');
-  prefix.className = 'goal-prefix';
-  prefix.textContent = '●';
-
-  const text_el = document.createElement('span');
-  text_el.className = 'goal-text';
-  text_el.textContent = item.text;
-
-  const priority_btn = buildPriorityBtn(item, p => setGoalPriority(item.id, p));
-
-  const delete_btn = document.createElement('button');
-  delete_btn.className = 'goal-delete-btn';
-  delete_btn.textContent = '×';
-  delete_btn.title = '删除';
-
-  row.appendChild(prefix);
-  row.appendChild(text_el);
-  row.appendChild(priority_btn);
-  row.appendChild(delete_btn);
-  li.appendChild(row);
-
-  li.appendChild(buildGoalProgressArea(item));
-
-  if (item.dueDate) {
-    const badge = buildDueBadge(item.dueDate);
-    if (badge) {
-      badge.style.marginLeft = '22px';
-      li.appendChild(badge);
-    }
+  // 只有 Todo 类型支持单击切换完成状态
+  if (is_todo) {
+    li.addEventListener('click', e => {
+      if (e.target.closest('.goal-delete-btn')) return;
+      if (e.target.closest('.priority-btn')) return;
+      clearTimeout(click_timer);
+      click_timer = setTimeout(() => toggleGoalItem(item.id), 180);
+    });
   }
-
-  text_el.addEventListener('dblclick', e => {
-    e.stopPropagation();
-    startGoalEditing(li, item, text_el);
-  });
-
-  delete_btn.addEventListener('click', e => {
-    e.stopPropagation();
-    deleteGoalItem(item.id);
-  });
-
-  li.addEventListener('click', e => {
-    if (e.target.closest('.goal-delete-btn')) return;
-    if (e.target.closest('.goal-adjust-btn')) return;
-    if (e.target.closest('.priority-btn')) return;
-  });
 
   return li;
 }
@@ -740,11 +611,10 @@ function toggleGoalPin(id) {
 
 function getSortedGoals() {
   const priority_order = { high: 0, medium: 1, low: 2 };
-  return [...state.goals].sort((a, b) => {
+  const filtered = state.goals.filter(g => g.type === state.activeGoalView);
+  return filtered.sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-    const a_done = a.done || a.progress === 100;
-    const b_done = b.done || b.progress === 100;
-    if (a_done !== b_done) return a_done ? 1 : -1;
+    if (a.done !== b.done) return a.done ? 1 : -1;
     if (a.priority !== b.priority) return priority_order[a.priority] - priority_order[b.priority];
     return b.createdAt - a.createdAt;
   });
@@ -761,14 +631,14 @@ function renderGoals() {
   list.innerHTML = '';
 
   const sorted = getSortedGoals();
-  const pinned_items = sorted.filter(g => g.pinned && !(g.done || g.progress === 100));
-  const active_items = sorted.filter(g => !g.pinned && !(g.done || g.progress === 100));
-  const done_items   = sorted.filter(g => g.done || g.progress === 100);
+  const pinned_items = sorted.filter(g => g.pinned && !g.done);
+  const active_items = sorted.filter(g => !g.pinned && !g.done);
+  const done_items   = sorted.filter(g => g.done);
 
   empty.classList.toggle('hidden', sorted.length > 0);
 
   function buildLiWithPin(item) {
-    const li = item.type === 'goal' ? buildGoalItem(item) : buildGoalTodoItem(item);
+    const li = buildGoalListItem(item);
     const pin_btn = document.createElement('button');
     pin_btn.className = 'goal-pin-btn';
     pin_btn.textContent = '★';
@@ -780,6 +650,7 @@ function renderGoals() {
     const row = li.querySelector('.goal-item-row');
     if (row) row.insertBefore(pin_btn, row.firstChild);
     if (item.pinned) li.classList.add('pinned');
+    li.addEventListener('pointerdown', e => initDrag(e, item));
     return li;
   }
 
@@ -810,6 +681,122 @@ function renderGoals() {
   appendGroup('已完成', done_items, true);
 }
 
+// ── 拖拽复制 ──────────────────────────────────────────────
+
+function createDragGhost(goal, x, y) {
+  const ghost = document.createElement('div');
+  ghost.className = 'drag-ghost';
+  const prefix = goal.type === 'goal' ? '● ' : '□ ';
+  ghost.textContent = prefix + goal.text;
+  ghost.style.left = x + 'px';
+  ghost.style.top = y + 'px';
+  document.body.appendChild(ghost);
+  ghost.getBoundingClientRect(); // 强制 reflow，确保 transition 生效
+  ghost.classList.add('drag-ghost--visible');
+  return ghost;
+}
+
+function moveDragGhost(ghost, x, y) {
+  ghost.style.left = x + 'px';
+  ghost.style.top = y + 'px';
+}
+
+function removeDragGhost(ghost) {
+  ghost.classList.remove('drag-ghost--visible');
+  ghost.classList.add('drag-ghost--exit');
+  const remove = () => { if (ghost.parentNode) ghost.remove(); };
+  ghost.addEventListener('transitionend', remove, { once: true });
+  setTimeout(remove, 400); // 兜底：transition 未触发时强制移除
+}
+
+function isOverDailyPanel(x, y) {
+  const rect = document.querySelector('.panel-daily').getBoundingClientRect();
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+}
+
+function setTaskListDropActive(active) {
+  document.getElementById('task-list').classList.toggle('drop-zone--active', active);
+}
+
+function dropToDaily(goal) {
+  const new_task = {
+    id: generateId(),
+    text: goal.text,
+    done: false,
+    createdAt: Date.now(),
+    priority: goal.priority,
+    tags: [...(goal.tags || [])],
+  };
+  state.tasks = [new_task, ...state.tasks];
+  saveTasks(state.dateKey, state.tasks);
+  renderTasks();
+  // 触发新任务弹入动画
+  const new_li = document.querySelector(`[data-task-id="${new_task.id}"]`);
+  if (new_li) {
+    new_li.classList.add('task-drop-in');
+    new_li.addEventListener('animationend', () => new_li.classList.remove('task-drop-in'), { once: true });
+  }
+}
+
+function initDrag(e, goal) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (e.target.closest('.goal-delete-btn, .priority-btn, .goal-pin-btn, .task-edit-input')) return;
+
+  const start_x = e.clientX;
+  const start_y = e.clientY;
+  const source_el = e.currentTarget;
+  let ghost = null;
+  let is_dragging = false;
+
+  const drag_timer = setTimeout(() => {
+    is_dragging = true;
+    source_el.classList.add('drag-source');
+    document.body.classList.add('dragging-active');
+    ghost = createDragGhost(goal, start_x, start_y);
+    if (navigator.vibrate) navigator.vibrate(30); // 移动端震动反馈
+  }, DRAG_HOLD_MS);
+
+  function on_move(e) {
+    if (!is_dragging) {
+      // 未进入拖拽模式前若移动超出阈值，取消（用户意图为滚动）
+      if (Math.hypot(e.clientX - start_x, e.clientY - start_y) > DRAG_MOVE_THRESHOLD) {
+        clearTimeout(drag_timer);
+        cleanup();
+      }
+      return;
+    }
+    e.preventDefault();
+    moveDragGhost(ghost, e.clientX, e.clientY);
+    setTaskListDropActive(isOverDailyPanel(e.clientX, e.clientY));
+  }
+
+  function on_up(e) {
+    clearTimeout(drag_timer);
+    cleanup();
+    if (!is_dragging) return;
+
+    // 拖拽结束后浏览器会补发 click，用捕获阶段吸收它，防止误触发完成逻辑
+    source_el.addEventListener('click', e => e.stopPropagation(), { once: true, capture: true });
+
+    setTaskListDropActive(false);
+    document.body.classList.remove('dragging-active');
+    source_el.classList.remove('drag-source');
+    removeDragGhost(ghost);
+
+    if (isOverDailyPanel(e.clientX, e.clientY)) {
+      dropToDaily(goal);
+    }
+  }
+
+  function cleanup() {
+    document.removeEventListener('pointermove', on_move);
+    document.removeEventListener('pointerup', on_up);
+  }
+
+  document.addEventListener('pointermove', on_move);
+  document.addEventListener('pointerup', on_up);
+}
+
 // ── 初始化 ────────────────────────────────────────────────
 
 const state = {
@@ -819,6 +806,7 @@ const state = {
   activeTag: null,
   goals: [],
   newItemType: 'todo',
+  activeGoalView: 'todo',
   is_archive_collapsed: false,
 };
 
