@@ -93,15 +93,80 @@
 
         <nav class="nav-section">
           <button id="prev-btn" class="nav-btn">← 昨天</button>
-          <div class="export-group">
-            <button id="export-json-btn" class="export-btn" title="导出全部数据 (JSON)">导出 JSON</button>
-            <button id="export-text-btn" class="export-btn" title="导出今日任务 (TXT)">导出 TXT</button>
+          <div class="nav-center-btns">
+            <button id="cal-btn" class="cal-btn" title="日历">▦ cal</button>
+            <button id="memo-btn" class="memo-btn" title="当日备忘录">// memo</button>
           </div>
           <button id="next-btn" class="nav-btn">明天 →</button>
         </nav>
       </div>
     </main>
 
+  </div>
+
+  <!-- 日历弹窗 -->
+  <div id="cal-overlay" class="memo-overlay hidden" aria-hidden="true">
+    <div id="cal-modal" class="cal-modal" role="dialog" aria-modal="true">
+
+      <!-- 头部 -->
+      <div class="cal-modal-header">
+        <span class="memo-modal-prompt">&gt;</span>
+        <span class="cal-modal-title">// calendar</span>
+        <button id="cal-today-btn" class="cal-today-btn">今日</button>
+      </div>
+
+      <div class="memo-modal-divider"></div>
+
+      <!-- 月份导航 -->
+      <div class="cal-month-nav">
+        <button id="cal-prev-month" class="cal-nav-arrow">←</button>
+        <span id="cal-month-label" class="cal-month-label"></span>
+        <button id="cal-next-month" class="cal-nav-arrow">→</button>
+      </div>
+
+      <!-- 星期标题行 -->
+      <div class="cal-weekday-row">
+        <span>日</span><span>一</span><span>二</span>
+        <span>三</span><span>四</span><span>五</span><span>六</span>
+      </div>
+
+      <!-- 日期网格（JS 动态生成） -->
+      <div id="cal-grid" class="cal-grid"></div>
+
+      <!-- 底部图例 -->
+      <div class="memo-modal-divider"></div>
+      <div class="cal-modal-footer">
+        <span class="cal-legend">
+          <span class="cal-legend-glow"></span> 全部完成
+          <span class="cal-legend-mark">//</span> 有备忘
+        </span>
+        <span class="cal-hint">单击跳转 · 双击开备忘录</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 备忘录弹窗 -->
+  <div id="memo-overlay" class="memo-overlay hidden" aria-hidden="true">
+    <div id="memo-modal" class="memo-modal" role="dialog" aria-modal="true">
+      <div class="memo-modal-header">
+        <span class="memo-modal-prompt">&gt;</span>
+        <span class="memo-modal-title">// memo</span>
+        <span id="memo-modal-date" class="memo-modal-date"></span>
+      </div>
+      <div class="memo-modal-divider"></div>
+      <textarea
+        id="memo-textarea"
+        class="memo-textarea"
+        placeholder="在这里记录今天的备忘..."
+        spellcheck="false"
+        autocomplete="off"
+      ></textarea>
+      <div class="memo-modal-divider"></div>
+      <div class="memo-modal-footer">
+        <span id="memo-char-count" class="memo-char-count">0 字</span>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

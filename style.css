@@ -384,27 +384,34 @@ body {
   background-color: var(--accent-bg-hover);
 }
 
-/* 导出按钮组 */
-.export-group {
-  display: flex;
-  gap: 8px;
-}
-
-.export-btn {
+/* 备忘录按钮 */
+.memo-btn {
   background: transparent;
   border: 1px solid #2a2a2a;
-  color: #666;
+  color: #555;
   font-family: inherit;
   font-size: 12px;
-  padding: 6px 12px;
+  padding: 6px 16px;
   border-radius: 6px;
   cursor: pointer;
-  transition: color 0.2s, border-color 0.2s;
+  transition: color 0.2s, border-color 0.2s, box-shadow 0.2s;
+  letter-spacing: 0.04em;
 }
 
-.export-btn:hover {
+.memo-btn:hover {
   color: var(--accent);
   border-color: var(--accent-dim);
+}
+
+.memo-btn.has-content {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  animation: memoBtnPulse 2.5s ease-in-out infinite;
+}
+
+@keyframes memoBtnPulse {
+  0%, 100% { box-shadow: none; }
+  50%       { box-shadow: 0 0 8px var(--accent-dim); }
 }
 
 /* 日期导航 */
@@ -619,9 +626,34 @@ body {
 
 .goal-delete-btn:hover { color: #ff4444; }
 
+/* 目标备忘录按钮 */
+.goal-memo-btn {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  color: #555;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  transition: color 0.2s, opacity 0.2s;
+  flex-shrink: 0;
+  font-family: inherit;
+  letter-spacing: 0.05em;
+}
+
+.goal-item:hover .goal-memo-btn { opacity: 1; }
+.goal-memo-btn:hover { color: var(--accent); }
+
+.goal-memo-btn.has-memo {
+  opacity: 1;
+  color: var(--accent);
+}
+
 /* Todo 类型样式 */
 .goal-item.type-todo .goal-prefix { color: #777; }
 .goal-item.type-todo:hover .goal-prefix { color: #999; }
+.goal-item.todo-done:hover .goal-prefix { color: var(--accent); }
 
 /* Todo 完成态 */
 .goal-item.todo-done { border-left: 2px solid var(--accent-dim); background-color: #161616; }
@@ -753,8 +785,19 @@ body {
   from { text-decoration-color: transparent; }
   to   { text-decoration-color: #555; }
 }
-/* 仅首次勾选时触发划线动画 */
+
+@keyframes goalComplete {
+  0%   { transform: scale(1); background-color: #161616; }
+  40%  { transform: scale(1.025); background-color: var(--accent-bg-task); }
+  100% { transform: scale(1); background-color: #161616; }
+}
+
+/* 仅首次勾选时触发划线 + 背景闪烁动画 */
+.goal-item.just-toggled {
+  animation: goalComplete 0.4s ease;
+}
 .goal-item.just-toggled .goal-text {
+  text-decoration: line-through;
   animation: strikeThrough 0.25s ease forwards;
 }
 
@@ -844,3 +887,425 @@ body {
 .task-item.task-drop-in {
   animation: taskDropIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
+
+/* ── 备忘录弹窗 ───────────────────────────────────────────── */
+
+@keyframes overlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes overlayOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.93); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+@keyframes modalOut {
+  from { opacity: 1; transform: translateY(0)    scale(1); }
+  to   { opacity: 0; transform: translateY(12px) scale(0.95); }
+}
+
+.memo-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: overlayIn 0.22s ease forwards;
+}
+
+.memo-overlay.closing {
+  animation: overlayOut 0.2s ease forwards;
+}
+
+.memo-overlay.hidden {
+  display: none;
+}
+
+.memo-modal {
+  width: 100%;
+  max-width: 720px;
+  background: #141414;
+  border: 1px solid var(--accent-dim);
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px #00ff8810, 0 24px 64px rgba(0, 0, 0, 0.7), 0 0 40px rgba(0, 255, 136, 0.07);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalIn 0.28s cubic-bezier(0.34, 1.36, 0.64, 1) forwards;
+}
+
+.memo-overlay.closing .memo-modal {
+  animation: modalOut 0.2s ease forwards;
+}
+
+
+.memo-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 28px 18px;
+}
+
+.memo-modal-prompt {
+  color: var(--accent);
+  font-size: 17px;
+  flex-shrink: 0;
+}
+
+.memo-modal-title {
+  color: var(--accent);
+  font-size: 17px;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.memo-modal-date {
+  color: #555;
+  font-size: 14px;
+  margin-left: 4px;
+  letter-spacing: 0.04em;
+}
+
+.memo-modal-divider {
+  height: 1px;
+  background: linear-gradient(to right, var(--accent-dim), transparent 80%);
+  margin: 0 28px;
+}
+
+.memo-textarea {
+  flex: 1;
+  min-height: 340px;
+  max-height: 62vh;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: #d0d0d0;
+  font-family: 'JetBrains Mono', 'Courier New', 'Consolas', monospace;
+  font-size: 16px;
+  line-height: 1.8;
+  padding: 24px 28px;
+  caret-color: var(--accent);
+}
+
+.memo-textarea::placeholder {
+  color: #333;
+}
+
+.memo-textarea::-webkit-scrollbar {
+  width: 4px;
+}
+
+.memo-textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.memo-textarea::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 2px;
+}
+
+.memo-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 28px 20px;
+}
+
+.memo-char-count {
+  font-size: 14px;
+  color: #444;
+  transition: color 0.2s;
+}
+
+.memo-char-count.has-content {
+  color: #666;
+}
+
+/* ── 日历入口按钮 ─────────────────────────────────────────── */
+
+.nav-center-btns {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.cal-btn {
+  background: transparent;
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  letter-spacing: 0.04em;
+  animation: memoBtnPulse 2.5s ease-in-out infinite;
+}
+
+/* ── 日历模态卡片 ─────────────────────────────────────────── */
+
+.cal-modal {
+  width: 100%;
+  max-width: 420px;
+  background: #141414;
+  border: 1px solid var(--accent-dim);
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px #00ff8810, 0 24px 64px rgba(0, 0, 0, 0.7), 0 0 40px rgba(0, 255, 136, 0.07);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalIn 0.28s cubic-bezier(0.34, 1.36, 0.64, 1) forwards;
+}
+
+.memo-overlay.closing .cal-modal {
+  animation: modalOut 0.2s ease forwards;
+}
+
+/* 头部 */
+.cal-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 24px 16px;
+}
+
+.cal-modal-title {
+  color: var(--accent);
+  font-size: 16px;
+  letter-spacing: 0.06em;
+  flex: 1;
+}
+
+.cal-today-btn {
+  background: transparent;
+  border: 1px solid #333;
+  color: #666;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  letter-spacing: 0.04em;
+}
+
+.cal-today-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+/* 月份导航 */
+.cal-month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 24px 8px;
+}
+
+.cal-nav-arrow {
+  background: transparent;
+  border: none;
+  color: #555;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 12px;
+  border-radius: 4px;
+  transition: color 0.15s, background-color 0.15s;
+  font-family: inherit;
+  line-height: 1;
+}
+
+.cal-nav-arrow:hover {
+  color: var(--accent);
+  background-color: var(--accent-bg);
+}
+
+.cal-month-label {
+  font-size: 16px;
+  color: #ccc;
+  letter-spacing: 0.1em;
+  user-select: none;
+}
+
+/* 星期标题行 */
+.cal-weekday-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  padding: 4px 16px 6px;
+  text-align: center;
+}
+
+.cal-weekday-row span {
+  font-size: 11px;
+  color: #666;
+  letter-spacing: 0.05em;
+  padding: 4px 0;
+}
+
+.cal-weekday-row span:first-child,
+.cal-weekday-row span:last-child {
+  color: #4a4a4a;
+}
+
+/* 日期网格 */
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  padding: 0 16px 14px;
+}
+
+/* 日期单元格 */
+.cal-day {
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  color: #b0b0b0;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  user-select: none;
+}
+
+/* 空格占位 */
+.cal-day.empty {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* hover 态 */
+.cal-day:not(.empty):not(.other-month):hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background-color: var(--accent-bg);
+  transform: scale(1.08);
+  z-index: 1;
+}
+
+/* 今日 */
+.cal-day.today {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  font-weight: bold;
+}
+
+/* 当前查看日（selected） */
+.cal-day.selected {
+  background-color: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent-mid);
+}
+
+/* 今日 + selected 叠加：加强高亮 */
+.cal-day.today.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 8px var(--accent-dim);
+}
+
+/* 其他月份溢出日（暂不显示，仅保留占位逻辑） */
+.cal-day.other-month {
+  color: #2a2a2a;
+  pointer-events: none;
+}
+
+/* 全部完成：整格绿化 + 外发光脉冲 */
+.cal-day.all-done {
+  background-color: rgba(0, 255, 136, 0.09);
+  border-color: var(--accent-dim);
+  color: var(--accent);
+  animation: calCellPulse 3s ease-in-out infinite;
+}
+
+@keyframes calCellPulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(0, 255, 136, 0.10); }
+  50%       { box-shadow: 0 0 16px rgba(0, 255, 136, 0.28); }
+}
+
+/* all-done hover：停止脉冲，保留 scale */
+.cal-day.all-done:hover {
+  animation: none;
+  box-shadow: 0 0 16px rgba(0, 255, 136, 0.28);
+}
+
+/* 有备忘录的 // 标记 */
+.cal-day-mark {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  font-size: 8px;
+  color: var(--accent);
+  line-height: 1;
+  pointer-events: none;
+  letter-spacing: -0.05em;
+  font-family: inherit;
+}
+
+/* 日历弹窗底部 */
+.cal-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px 18px;
+}
+
+.cal-legend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #444;
+  font-size: 11px;
+}
+
+.cal-legend-glow {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background-color: rgba(0, 255, 136, 0.09);
+  border: 1px solid var(--accent-dim);
+  box-shadow: 0 0 6px rgba(0, 255, 136, 0.25);
+  flex-shrink: 0;
+}
+
+.cal-legend-mark {
+  color: #666;
+  font-size: 10px;
+  letter-spacing: -0.05em;
+  margin-left: 6px;
+  font-family: inherit;
+}
+
+.cal-hint {
+  color: #333;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+/* 月份切换滑动动画 */
+@keyframes calGridSlideLeft {
+  from { opacity: 0; transform: translateX(18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes calGridSlideRight {
+  from { opacity: 0; transform: translateX(-18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.cal-grid.slide-left  { animation: calGridSlideLeft  0.2s ease; }
+.cal-grid.slide-right { animation: calGridSlideRight 0.2s ease; }
+

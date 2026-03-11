@@ -2,7 +2,6 @@ const STORAGE_KEY = 'daily_plan_data';
 const GOALS_STORAGE_KEY = 'daily_plan_goals';
 const WEEK_DAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 const PRIORITY_LABELS = { high: '高', medium: '中', low: '低' };
-const PRIORITY_LABELS_EXPORT = { high: '[高]', medium: '[中]', low: '[低]' };
 const PRIORITY_COLORS = { high: '#e74c3c', medium: '#f1c40f', low: '#2ecc71' };
 const DRAG_HOLD_MS = 150;
 const DRAG_MOVE_THRESHOLD = 5;
@@ -302,43 +301,174 @@ function navigateDate(offset) {
   const [yyyy, mm, dd] = state.dateKey.split('-').map(Number);
   const d = new Date(yyyy, mm - 1, dd);
   d.setDate(d.getDate() + offset);
-  state.dateKey = dateToKey(d);
-  state.tasks = loadTasks(state.dateKey);
-  state.activeTag = null;
-  document.getElementById('date-display').textContent = formatDateDisplay(state.dateKey);
-  renderTasks();
+  jumpToDate(dateToKey(d));
 }
 
-// ── 数据导出 ──────────────────────────────────────────────
+// ── 备忘录持久化 ──────────────────────────────────────────
 
-function triggerDownload(content, filename, mimeType) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+const MEMO_STORAGE_KEY = 'daily_plan_memo';
+
+function loadMemo(dateKey) {
+  try {
+    const data = JSON.parse(localStorage.getItem(MEMO_STORAGE_KEY)) || {};
+    return data[dateKey] || '';
+  } catch {
+    return '';
+  }
 }
 
-function exportJSON() {
-  const data = loadAllData();
-  triggerDownload(JSON.stringify(data, null, 2), 'daily_plan_all.json', 'application/json');
+function saveMemo(dateKey, text) {
+  try {
+    const data = JSON.parse(localStorage.getItem(MEMO_STORAGE_KEY)) || {};
+    if (text.trim()) {
+      data[dateKey] = text;
+    } else {
+      delete data[dateKey];
+    }
+    localStorage.setItem(MEMO_STORAGE_KEY, JSON.stringify(data));
+  } catch { /* ignore */ }
 }
 
-function exportText() {
-  const lines = [`每日规划 ${formatDateDisplay(state.dateKey)}`, '─'.repeat(30)];
-  state.tasks.forEach(t => {
-    const status = t.done ? '[x]' : '[ ]';
-    const prio = PRIORITY_LABELS_EXPORT[t.priority];
-    const tags = t.tags.length ? '  ' + t.tags.map(tag => `#${tag}`).join(' ') : '';
-    lines.push(`${status} ${prio} ${t.text}${tags}`);
+// ── 目标备忘录持久化 ──────────────────────────────────────
+
+const GOAL_MEMO_STORAGE_KEY = 'daily_plan_goal_memo';
+
+function loadGoalMemo(goalId) {
+  try {
+    return (JSON.parse(localStorage.getItem(GOAL_MEMO_STORAGE_KEY)) || {})[goalId] || '';
+  } catch {
+    return '';
+  }
+}
+
+function saveGoalMemo(goalId, text) {
+  try {
+    const data = JSON.parse(localStorage.getItem(GOAL_MEMO_STORAGE_KEY)) || {};
+    if (text.trim()) {
+      data[goalId] = text;
+    } else {
+      delete data[goalId];
+    }
+    localStorage.setItem(GOAL_MEMO_STORAGE_KEY, JSON.stringify(data));
+  } catch { /* ignore */ }
+}
+
+// 目标删除时清理其备忘录，防止存储泄漏
+function deleteGoalMemo(goalId) {
+  try {
+    const data = JSON.parse(localStorage.getItem(GOAL_MEMO_STORAGE_KEY)) || {};
+    delete data[goalId];
+    localStorage.setItem(GOAL_MEMO_STORAGE_KEY, JSON.stringify(data));
+  } catch { /* ignore */ }
+}
+
+// 一次性读取全量备忘录（供日历渲染使用，避免逐日读取）
+function loadAllMemos() {
+  try {
+    return JSON.parse(localStorage.getItem(MEMO_STORAGE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+// 获取某日期的任务/备忘录统计状态
+function getDateStats(dateKey, allTasks, allMemos) {
+  const tasks = allTasks[dateKey] || [];
+  return {
+    allDone: tasks.length > 0 && tasks.every(t => t.done),
+    hasMemo: !!(allMemos[dateKey] && allMemos[dateKey].trim()),
+  };
+}
+
+// ── 备忘录弹窗 ────────────────────────────────────────────
+
+function updateMemoBtnState() {
+  const btn = document.getElementById('memo-btn');
+  btn.classList.toggle('has-content', loadMemo(state.dateKey).trim().length > 0);
+}
+
+function updateGoalMemoBtnState(goalId) {
+  const btn = document.querySelector(`[data-goal-id="${goalId}"] .goal-memo-btn`);
+  if (btn) btn.classList.toggle('has-memo', loadGoalMemo(goalId).trim().length > 0);
+}
+
+function updateMemoCharCount() {
+  const textarea = document.getElementById('memo-textarea');
+  const countEl  = document.getElementById('memo-char-count');
+  const len = textarea.value.length;
+  countEl.textContent = len > 0 ? `${len} 字` : '0 字';
+  countEl.classList.toggle('has-content', len > 0);
+}
+
+// ctx: { type: 'daily' } | { type: 'goal', id, text }
+function syncMemoModal() {
+  const ctx      = state.memoContext;
+  const textarea = document.getElementById('memo-textarea');
+  const dateEl   = document.getElementById('memo-modal-date');
+
+  if (ctx.type === 'daily') {
+    dateEl.textContent = formatDateDisplay(state.dateKey);
+    textarea.value = loadMemo(state.dateKey);
+  } else {
+    const MAX_LEN = 28;
+    dateEl.textContent = ctx.text.length > MAX_LEN ? ctx.text.slice(0, MAX_LEN) + '…' : ctx.text;
+    textarea.value = loadGoalMemo(ctx.id);
+  }
+  updateMemoCharCount();
+}
+
+function openMemo(ctx = { type: 'daily' }) {
+  state.memoContext = ctx;
+  const overlay = document.getElementById('memo-overlay');
+  syncMemoModal();
+  overlay.classList.remove('hidden', 'closing');
+  overlay.setAttribute('aria-hidden', 'false');
+  setTimeout(() => document.getElementById('memo-textarea').focus(), 50);
+}
+
+function closeMemo() {
+  const overlay = document.getElementById('memo-overlay');
+  overlay.classList.add('closing');
+
+  function onEnd(e) {
+    if (e.target !== overlay) return;
+    if (!overlay.classList.contains('closing')) return; // 已被 openMemo 取消关闭
+    overlay.classList.add('hidden');
+    overlay.classList.remove('closing');
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.removeEventListener('animationend', onEnd);
+  }
+  overlay.addEventListener('animationend', onEnd);
+}
+
+function initMemo() {
+  const overlay  = document.getElementById('memo-overlay');
+  const textarea = document.getElementById('memo-textarea');
+
+  document.getElementById('memo-btn').addEventListener('click', () => openMemo({ type: 'daily' }));
+
+  // 监听器只注册一次，根据当前上下文决定存入哪个存储
+  textarea.addEventListener('input', () => {
+    updateMemoCharCount();
+    const ctx = state.memoContext;
+    if (ctx.type === 'daily') {
+      saveMemo(state.dateKey, textarea.value);
+      updateMemoBtnState();
+    } else {
+      saveGoalMemo(ctx.id, textarea.value);
+      updateGoalMemoBtnState(ctx.id);
+    }
   });
-  const doneCount = state.tasks.filter(t => t.done).length;
-  lines.push('', `共 ${state.tasks.length} 项，已完成 ${doneCount} 项`);
-  triggerDownload(lines.join('\n'), `daily_plan_${state.dateKey}.txt`, 'text/plain;charset=utf-8');
+
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) closeMemo();
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !overlay.classList.contains('hidden')) closeMemo();
+  });
+
+  updateMemoBtnState();
 }
 
 // ── 截止日期工具函数 ──────────────────────────────────────
@@ -382,7 +512,6 @@ function migrateGoalItem(item) {
     priority: 'medium',
     tags: [],
     done: false,
-    progress: 0,
     dueDate: null,
     pinned: false,
     ...item,
@@ -427,7 +556,6 @@ function addGoalItem(rawText) {
     priority: 'medium',
     tags,
     done: false,
-    progress: 0,
     dueDate,
     pinned: false,
     createdAt: Date.now(),
@@ -451,20 +579,23 @@ function toggleGoalItem(id) {
     g.id === id && g.type === 'todo' ? { ...g, done: !g.done } : g
   );
   saveGoals();
-  renderGoals();
 
   if (becoming_done) {
     const li = document.querySelector(`[data-goal-id="${id}"]`);
     if (li) {
       li.classList.add('just-toggled');
-      li.addEventListener('animationend', () => li.classList.remove('just-toggled'), { once: true });
+      setTimeout(() => renderGoals(), 400);
+      return;
     }
   }
+
+  renderGoals();
 }
 
 function deleteGoalItem(id) {
   state.goals = state.goals.filter(g => g.id !== id);
   saveGoals();
+  deleteGoalMemo(id);
   renderGoals();
 }
 
@@ -519,9 +650,20 @@ function buildGoalListItem(item) {
   delete_btn.textContent = '×';
   delete_btn.title = '删除';
 
+  const memo_btn = document.createElement('button');
+  memo_btn.className = 'goal-memo-btn';
+  memo_btn.textContent = '//';
+  memo_btn.title = '目标备忘录';
+  if (loadGoalMemo(item.id).trim()) memo_btn.classList.add('has-memo');
+  memo_btn.addEventListener('click', e => {
+    e.stopPropagation();
+    openMemo({ type: 'goal', id: item.id, text: item.text });
+  });
+
   row.appendChild(prefix);
   row.appendChild(text_el);
   row.appendChild(priority_btn);
+  row.appendChild(memo_btn);
   row.appendChild(delete_btn);
   li.appendChild(row);
 
@@ -551,6 +693,7 @@ function buildGoalListItem(item) {
     li.addEventListener('click', e => {
       if (e.target.closest('.goal-delete-btn')) return;
       if (e.target.closest('.priority-btn')) return;
+      if (e.target.closest('.goal-memo-btn')) return;
       clearTimeout(click_timer);
       click_timer = setTimeout(() => toggleGoalItem(item.id), 180);
     });
@@ -740,7 +883,7 @@ function dropToDaily(goal) {
 
 function initDrag(e, goal) {
   if (e.pointerType === 'mouse' && e.button !== 0) return;
-  if (e.target.closest('.goal-delete-btn, .priority-btn, .goal-pin-btn, .task-edit-input')) return;
+  if (e.target.closest('.goal-delete-btn, .priority-btn, .goal-pin-btn, .goal-memo-btn, .task-edit-input')) return;
 
   const start_x = e.clientX;
   const start_y = e.clientY;
@@ -797,6 +940,170 @@ function initDrag(e, goal) {
   document.addEventListener('pointerup', on_up);
 }
 
+// ── 日历 ─────────────────────────────────────────────────
+
+function renderCalendarGrid(direction = null) {
+  const grid  = document.getElementById('cal-grid');
+  const label = document.getElementById('cal-month-label');
+  const { calYear: y, calMonth: m } = state;
+  const todayKey    = getTodayKey();
+  const selectedKey = state.dateKey;
+
+  // 更新月份标签
+  label.textContent = `${y}-${String(m + 1).padStart(2, '0')}`;
+
+  // 触发方向感知滑动动画
+  if (direction) {
+    grid.classList.remove('slide-left', 'slide-right');
+    void grid.offsetWidth; // 强制 reflow，确保动画重新触发
+    grid.classList.add(direction === 1 ? 'slide-left' : 'slide-right');
+  }
+
+  // 一次性读取全量数据，避免循环内重复 IO
+  const allTasks = loadAllData();
+  const allMemos = loadAllMemos();
+
+  const first_day_of_week = new Date(y, m, 1).getDay(); // 0=周日
+  const days_in_month = new Date(y, m + 1, 0).getDate();
+
+  grid.innerHTML = '';
+
+  // 空格填充（月初对齐周日起始）
+  for (let i = 0; i < first_day_of_week; i++) {
+    const empty = document.createElement('div');
+    empty.className = 'cal-day empty';
+    grid.appendChild(empty);
+  }
+
+  // 日期格
+  for (let d = 1; d <= days_in_month; d++) {
+    const dateKey = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const { allDone, hasMemo } = getDateStats(dateKey, allTasks, allMemos);
+
+    const cell = document.createElement('div');
+    cell.className = 'cal-day';
+    cell.dataset.dateKey = dateKey;
+
+    const num = document.createElement('span');
+    num.textContent = d;
+    cell.appendChild(num);
+
+    if (dateKey === todayKey)    cell.classList.add('today');
+    if (dateKey === selectedKey) cell.classList.add('selected');
+
+    // 全部完成：格子绿化发光
+    if (allDone) {
+      cell.classList.add('all-done');
+    }
+
+    // 有备忘录：// 标记（★ 存在时 CSS 自动左移避免重叠）
+    if (hasMemo) {
+      const mark = document.createElement('span');
+      mark.className = 'cal-day-mark';
+      mark.textContent = '//';
+      cell.appendChild(mark);
+    }
+
+    // 单击/双击防冲突（与任务项相同的 180ms 延时方案）
+    let click_timer = null;
+
+    cell.addEventListener('click', () => {
+      clearTimeout(click_timer);
+      click_timer = setTimeout(() => {
+        jumpToDate(dateKey);
+        closeCalendar();
+      }, 180);
+    });
+
+    cell.addEventListener('dblclick', () => {
+      clearTimeout(click_timer);
+      jumpToDate(dateKey);
+      closeCalendar();
+      // 等待关闭动画（200ms）结束后再打开备忘录
+      setTimeout(() => openMemo({ type: 'daily' }), 250);
+    });
+
+    grid.appendChild(cell);
+  }
+}
+
+// 跳转到指定日期（更新主页任务视图，不操作日历弹窗）
+function jumpToDate(dateKey) {
+  state.dateKey   = dateKey;
+  state.tasks     = loadTasks(dateKey);
+  state.activeTag = null;
+  document.getElementById('date-display').textContent = formatDateDisplay(dateKey);
+  renderTasks();
+  updateMemoBtnState();
+
+  // 若日常备忘录弹窗已打开，同步更新日期和内容
+  const memoOverlay = document.getElementById('memo-overlay');
+  if (!memoOverlay.classList.contains('hidden') && state.memoContext?.type === 'daily') {
+    syncMemoModal();
+  }
+}
+
+// 月份切换：direction +1 下月，-1 上月
+function changeCalMonth(direction) {
+  state.calMonth += direction;
+  if (state.calMonth > 11) { state.calMonth = 0; state.calYear++; }
+  if (state.calMonth < 0)  { state.calMonth = 11; state.calYear--; }
+  renderCalendarGrid(direction);
+}
+
+function openCalendar() {
+  // 日历视图对齐到当前查看日期所在月
+  const [y, m] = state.dateKey.split('-').map(Number);
+  state.calYear  = y;
+  state.calMonth = m - 1;
+
+  const overlay = document.getElementById('cal-overlay');
+  overlay.classList.remove('hidden', 'closing');
+  overlay.setAttribute('aria-hidden', 'false');
+  renderCalendarGrid();
+}
+
+function closeCalendar() {
+  const overlay = document.getElementById('cal-overlay');
+  overlay.classList.add('closing');
+
+  function onEnd(e) {
+    if (e.target !== overlay) return;
+    if (!overlay.classList.contains('closing')) return; // 已被 openCalendar 取消关闭
+    overlay.classList.add('hidden');
+    overlay.classList.remove('closing');
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.removeEventListener('animationend', onEnd);
+  }
+  overlay.addEventListener('animationend', onEnd);
+}
+
+function initCalendar() {
+  const overlay = document.getElementById('cal-overlay');
+
+  document.getElementById('cal-btn').addEventListener('click', openCalendar);
+
+  // 月份切换
+  document.getElementById('cal-prev-month').addEventListener('click', () => changeCalMonth(-1));
+  document.getElementById('cal-next-month').addEventListener('click', () => changeCalMonth(1));
+
+  // 今日按钮：直接跳转到今日并关闭日历
+  document.getElementById('cal-today-btn').addEventListener('click', () => {
+    jumpToDate(getTodayKey());
+    closeCalendar();
+  });
+
+  // 点击遮罩关闭
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) closeCalendar();
+  });
+
+  // Esc 关闭（与 memo 独立判断，互不干扰）
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !overlay.classList.contains('hidden')) closeCalendar();
+  });
+}
+
 // ── 初始化 ────────────────────────────────────────────────
 
 const state = {
@@ -808,6 +1115,9 @@ const state = {
   newItemType: 'todo',
   activeGoalView: 'todo',
   is_archive_collapsed: false,
+  memoContext: { type: 'daily' },
+  calYear: new Date().getFullYear(),
+  calMonth: new Date().getMonth(),   // 0-indexed
 };
 
 function init() {
@@ -832,8 +1142,6 @@ function init() {
 
   document.getElementById('prev-btn').addEventListener('click', () => navigateDate(-1));
   document.getElementById('next-btn').addEventListener('click', () => navigateDate(1));
-  document.getElementById('export-json-btn').addEventListener('click', exportJSON);
-  document.getElementById('export-text-btn').addEventListener('click', exportText);
 
   // 左栏初始化
   state.goals = loadGoals();
@@ -858,6 +1166,8 @@ function init() {
   });
 
   initGoalPanelToggle();
+  initMemo();
+  initCalendar();
 }
 
 function initGoalPanelToggle() {
