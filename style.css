@@ -1309,3 +1309,388 @@ body {
 .cal-grid.slide-left  { animation: calGridSlideLeft  0.2s ease; }
 .cal-grid.slide-right { animation: calGridSlideRight 0.2s ease; }
 
+/* ═══════════════════════════════════════════════════════════
+   计时器模块
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── 导航栏触发按钮 ──────────────────────────────────────── */
+
+.timer-nav-btn {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: #555;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, box-shadow 0.2s;
+  letter-spacing: 0.04em;
+}
+
+.timer-nav-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+.timer-nav-btn.running {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  animation: memoBtnPulse 2s ease-in-out infinite;
+}
+
+/* ── 浮动面板外壳 ────────────────────────────────────────── */
+
+@keyframes timerPanelIn {
+  from { opacity: 0; transform: translateY(24px) scale(0.90); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+@keyframes timerPanelOut {
+  from { opacity: 1; transform: translateY(0)    scale(1); }
+  to   { opacity: 0; transform: translateY(16px) scale(0.94); }
+}
+
+.timer-panel {
+  position: fixed;
+  z-index: 800;
+  bottom: 72px;
+  right: 40px;
+  width: 320px;
+  background: rgba(10, 10, 10, 0.97);
+  border: 1px solid var(--accent-dim);
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1px #00ff8808,
+    0 28px 72px rgba(0, 0, 0, 0.85),
+    0 0 48px rgba(0, 255, 136, 0.10);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  user-select: none;
+  animation: timerPanelIn 0.32s cubic-bezier(0.34, 1.36, 0.64, 1) forwards;
+}
+
+.timer-panel.hidden {
+  display: none;
+}
+
+.timer-panel.closing {
+  animation: timerPanelOut 0.22s ease forwards;
+}
+
+/* 最小化态：只显示 header，高度自动收起 */
+.timer-panel.minimized .timer-body {
+  display: none;
+}
+
+.timer-panel.minimized .timer-panel-header {
+  border-bottom: none;
+}
+
+.timer-panel.minimized .timer-minimize-btn-icon {
+  content: '□';
+}
+
+/* ── 面板 Header（拖拽手柄） ─────────────────────────────── */
+
+.timer-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 16px 12px;
+  border-bottom: 1px solid #1c1c1c;
+  cursor: grab;
+}
+
+.timer-panel-header:active {
+  cursor: grabbing;
+}
+
+.timer-panel-prompt {
+  color: var(--accent);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.timer-panel-title {
+  color: var(--accent);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.timer-header-time {
+  flex: 1;
+  font-size: 12px;
+  color: #555;
+  letter-spacing: 0.06em;
+  text-align: right;
+  padding-right: 6px;
+  transition: color 0.3s;
+}
+
+.timer-panel.minimized .timer-header-time {
+  color: #e8e8e8;
+}
+
+.timer-header-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.timer-window-btn {
+  background: transparent;
+  border: none;
+  color: #444;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: inherit;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.timer-window-btn:hover {
+  color: #aaa;
+  background-color: #1e1e1e;
+}
+
+.timer-window-btn--close:hover {
+  color: var(--danger);
+  background-color: var(--danger-bg);
+}
+
+/* ── 面板 Body ───────────────────────────────────────────── */
+
+.timer-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 20px 20px;
+  gap: 20px;
+}
+
+/* ── SVG 环形区域 ────────────────────────────────────────── */
+
+.timer-ring-container {
+  position: relative;
+  width: 220px;
+  height: 220px;
+}
+
+.timer-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* 背景轨道圆 */
+.timer-ring-bg {
+  fill: none;
+  stroke: #1c1c1c;
+  stroke-width: 8;
+}
+
+/* 刻度点 */
+.timer-tick {
+  fill: #282828;
+  transition: fill 0.25s, r 0.25s;
+}
+
+.timer-tick.major {
+  fill: #353535;
+}
+
+.timer-tick.tick-active {
+  fill: var(--accent);
+  filter: drop-shadow(0 0 3px rgba(0, 255, 136, 0.75));
+}
+
+/* 进度弧 */
+.timer-ring-progress {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-dasharray: 565.49;
+  stroke-dashoffset: 565.49;
+  /* 绕中心旋转 -90°，使弧从 12 点钟方向开始 */
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: rotate(-90deg);
+  transition: stroke-dashoffset 0.88s cubic-bezier(0.25, 0.46, 0.45, 0.94), stroke 0.4s ease;
+  filter: drop-shadow(0 0 5px rgba(0, 255, 136, 0.55));
+}
+
+.timer-ring-progress.paused {
+  stroke: #444;
+  filter: none;
+}
+
+/* 呼吸发光（运行中） */
+@keyframes timerRingBreath {
+  0%, 100% { filter: drop-shadow(0 0 5px rgba(0, 255, 136, 0.55)); }
+  50%       { filter: drop-shadow(0 0 14px rgba(0, 255, 136, 0.90)); }
+}
+
+.timer-ring-progress.running {
+  animation: timerRingBreath 3s ease-in-out infinite;
+}
+
+/* 重置时红色闪烁 */
+.timer-ring-progress.resetting {
+  stroke: var(--danger) !important;
+  filter: drop-shadow(0 0 8px rgba(255, 68, 68, 0.7)) !important;
+  transition: none !important;
+}
+
+/* 禁止过渡（用于瞬间跳转）  */
+.timer-ring-progress.no-transition {
+  transition: none !important;
+}
+
+/* 中心遮罩圆：阻断进度弧辉光向内渗透 */
+.timer-center-mask {
+  fill: #0a0a0a;
+}
+
+/* ── 中心时间显示 ─────────────────────────────────────────── */
+
+.timer-display {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.timer-digits {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  font-size: 38px;
+  font-weight: bold;
+  color: #e8e8e8;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  transition: color 0.4s;
+}
+
+.timer-digits.paused {
+  color: #484848;
+}
+
+/* 冒号闪烁（运行时） */
+.timer-colon {
+  font-size: 34px;
+  opacity: 0.55;
+  padding: 0 1px;
+  line-height: 0.9;
+}
+
+.timer-digits.running .timer-colon {
+  animation: timerColonBreath 2.4s ease-in-out infinite;
+}
+
+@keyframes timerColonBreath {
+  0%, 100% { opacity: 0.50; }
+  50%       { opacity: 0.22; }
+}
+
+/* 数字翻牌动画 */
+.timer-digit-group {
+  display: inline-block;
+  min-width: 2ch;
+  text-align: center;
+}
+
+@keyframes digitFlipUp {
+  0%   { transform: translateY(0)    scaleY(1);   opacity: 1; }
+  45%  { transform: translateY(-9px) scaleY(0.5); opacity: 0; }
+  55%  { transform: translateY(7px)  scaleY(0.5); opacity: 0; }
+  100% { transform: translateY(0)    scaleY(1);   opacity: 1; }
+}
+
+.timer-digit-group.flipping {
+  animation: digitFlipUp 0.2s ease;
+}
+
+.timer-label {
+  font-size: 10px;
+  color: #383838;
+  letter-spacing: 0.16em;
+  margin-top: 7px;
+  text-transform: uppercase;
+}
+
+/* ── 控制按钮区 ──────────────────────────────────────────── */
+
+.timer-controls {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.timer-start-btn {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 10px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  letter-spacing: 0.07em;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.timer-start-btn:hover {
+  background-color: var(--accent);
+  color: #0a0a0a;
+}
+
+.timer-start-btn.running {
+  border-color: var(--warn-dim);
+  color: var(--warn);
+}
+
+.timer-start-btn.running:hover {
+  background-color: var(--warn);
+  border-color: var(--warn);
+  color: #0a0a0a;
+}
+
+.timer-reset-btn {
+  background: transparent;
+  border: 1px solid #252525;
+  color: #444;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 10px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  letter-spacing: 0.07em;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.timer-reset-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger-dim);
+}
+
+/* ── 响应式：小屏时面板贴底 ─────────────────────────────── */
+
+@media (max-width: 600px) {
+  .timer-panel {
+    bottom: 0;
+    right: 0;
+    left: 0;
+    width: 100%;
+    border-radius: 14px 14px 0 0;
+  }
+}
+

@@ -96,6 +96,7 @@
           <div class="nav-center-btns">
             <button id="cal-btn" class="cal-btn" title="日历">▦ cal</button>
             <button id="memo-btn" class="memo-btn" title="当日备忘录">// memo</button>
+            <button id="timer-btn" class="timer-nav-btn" title="计时器">⏱ timer</button>
           </div>
           <button id="next-btn" class="nav-btn">明天 →</button>
         </nav>
@@ -165,6 +166,44 @@
       <div class="memo-modal-divider"></div>
       <div class="memo-modal-footer">
         <span id="memo-char-count" class="memo-char-count">0 字</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 计时器浮动面板 -->
+  <div id="timer-panel" class="timer-panel hidden" aria-label="计时器">
+    <div class="timer-panel-header" id="timer-drag-handle">
+      <span class="timer-panel-prompt">&gt;</span>
+      <span class="timer-panel-title">// timer</span>
+      <span id="timer-header-time" class="timer-header-time">00:00:00</span>
+      <div class="timer-header-actions">
+        <button id="timer-minimize-btn" class="timer-window-btn" title="最小化">_</button>
+        <button id="timer-close-btn" class="timer-window-btn timer-window-btn--close" title="关闭">×</button>
+      </div>
+    </div>
+    <div class="timer-body">
+      <div class="timer-ring-container">
+        <svg id="timer-svg" class="timer-svg" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg">
+          <circle class="timer-ring-bg" cx="120" cy="120" r="90"/>
+          <g id="timer-ticks"></g>
+          <circle id="timer-ring-progress" class="timer-ring-progress" cx="120" cy="120" r="90"/>
+          <!-- 中心遮罩：隔绝进度弧辉光向内渗透，保护文字可读性 -->
+          <circle class="timer-center-mask" cx="120" cy="120" r="81"/>
+        </svg>
+        <div class="timer-display">
+          <div id="timer-digits" class="timer-digits">
+            <span id="timer-hours" class="timer-digit-group">00</span>
+            <span class="timer-colon">:</span>
+            <span id="timer-minutes" class="timer-digit-group">00</span>
+            <span class="timer-colon">:</span>
+            <span id="timer-seconds-el" class="timer-digit-group">00</span>
+          </div>
+          <div class="timer-label">elapsed</div>
+        </div>
+      </div>
+      <div class="timer-controls">
+        <button id="timer-start-btn" class="timer-start-btn">▶ START</button>
+        <button id="timer-reset-btn" class="timer-reset-btn">↺ RESET</button>
       </div>
     </div>
   </div>

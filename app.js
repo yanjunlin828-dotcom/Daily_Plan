@@ -1104,6 +1104,274 @@ function initCalendar() {
   });
 }
 
+// ── 计时器模块 ────────────────────────────────────────────
+
+const TIMER_CIRCUMFERENCE = 2 * Math.PI * 90; // ≈ 565.49
+
+const timerState = {
+  seconds: 0,            // 已累计秒数（暂停时为权威值）
+  running: false,
+  intervalId: null,
+  startTimestamp: null,  // 运行中：Date.now() - seconds*1000（用于从挂钟还原真实时长）
+  prevSecondsInMinute: -1,
+};
+
+// 从挂钟时间同步经过秒数，规避后台 setInterval 降频问题
+function timerSyncFromClock() {
+  if (!timerState.running || timerState.startTimestamp === null) return;
+  timerState.seconds = Math.floor((Date.now() - timerState.startTimestamp) / 1000);
+  timerUpdateDisplay();
+}
+
+function timerFormatDigits(totalSeconds) {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  return {
+    h: String(h).padStart(2, '0'),
+    m: String(m).padStart(2, '0'),
+    s: String(s).padStart(2, '0'),
+  };
+}
+
+function timerFlipDigit(el, newVal) {
+  if (el.textContent === newVal) return;
+  el.classList.remove('flipping');
+  void el.offsetWidth; // force reflow to restart animation
+  el.textContent = newVal;
+  el.classList.add('flipping');
+  el.addEventListener('animationend', () => el.classList.remove('flipping'), { once: true });
+}
+
+function timerUpdateRing(secondsInMinute) {
+  const progressRing = document.getElementById('timer-ring-progress');
+  if (!progressRing) return;
+
+  const prev = timerState.prevSecondsInMinute;
+  const isRollover = secondsInMinute === 0 && prev > 0;
+  const isReset    = timerState.seconds === 0;
+
+  // 分钟跨越或重置时：无动画瞬间跳回空
+  if (isRollover || isReset) {
+    progressRing.classList.add('no-transition');
+    progressRing.style.strokeDashoffset = TIMER_CIRCUMFERENCE;
+    progressRing.getBoundingClientRect(); // force reflow
+    progressRing.classList.remove('no-transition');
+  }
+
+  if (!isReset) {
+    const progress = secondsInMinute / 60;
+    const offset   = TIMER_CIRCUMFERENCE * (1 - progress);
+    progressRing.style.strokeDashoffset = offset;
+  }
+
+  timerState.prevSecondsInMinute = secondsInMinute;
+}
+
+function timerUpdateTicks(secondsInMinute) {
+  document.querySelectorAll('.timer-tick').forEach((tick, i) => {
+    tick.classList.toggle('tick-active', i === secondsInMinute);
+  });
+}
+
+function timerUpdateDisplay() {
+  const { h, m, s } = timerFormatDigits(timerState.seconds);
+
+  timerFlipDigit(document.getElementById('timer-hours'),      h);
+  timerFlipDigit(document.getElementById('timer-minutes'),    m);
+  timerFlipDigit(document.getElementById('timer-seconds-el'), s);
+
+  // 最小化时 header 里的紧凑时间显示
+  const headerTime = document.getElementById('timer-header-time');
+  if (headerTime) headerTime.textContent = `${h}:${m}:${s}`;
+
+  const secondsInMinute = timerState.seconds % 60;
+  timerUpdateRing(secondsInMinute);
+  timerUpdateTicks(secondsInMinute);
+}
+
+function timerUpdateButtonUI() {
+  const startBtn    = document.getElementById('timer-start-btn');
+  const progressRing = document.getElementById('timer-ring-progress');
+  const digitsEl    = document.getElementById('timer-digits');
+  const timerNavBtn = document.getElementById('timer-btn');
+
+  if (timerState.running) {
+    startBtn.textContent = '⏸ PAUSE';
+    startBtn.classList.add('running');
+    progressRing?.classList.add('running');
+    progressRing?.classList.remove('paused');
+    digitsEl?.classList.add('running');
+    digitsEl?.classList.remove('paused');
+    timerNavBtn?.classList.add('running');
+  } else {
+    startBtn.textContent = '▶ START';
+    startBtn.classList.remove('running');
+    progressRing?.classList.remove('running');
+    digitsEl?.classList.remove('running');
+    timerNavBtn?.classList.remove('running');
+
+    if (timerState.seconds > 0) {
+      progressRing?.classList.add('paused');
+      digitsEl?.classList.add('paused');
+    } else {
+      progressRing?.classList.remove('paused');
+      digitsEl?.classList.remove('paused');
+    }
+  }
+}
+
+function timerStart() {
+  if (timerState.running) return;
+  // 记录偏移后的起始时间，保留已暂停的累计秒数
+  timerState.startTimestamp = Date.now() - timerState.seconds * 1000;
+  timerState.running = true;
+  timerState.intervalId = setInterval(timerSyncFromClock, 1000);
+  timerUpdateButtonUI();
+}
+
+function timerPause() {
+  if (!timerState.running) return;
+  timerSyncFromClock(); // 暂停前最后同步一次，确保精度
+  timerState.running = false;
+  timerState.startTimestamp = null;
+  clearInterval(timerState.intervalId);
+  timerState.intervalId = null;
+  timerUpdateButtonUI();
+}
+
+function timerReset() {
+  timerPause();
+  timerState.seconds = 0;
+  timerState.prevSecondsInMinute = -1;
+
+  // 红色闪烁反馈
+  const progressRing = document.getElementById('timer-ring-progress');
+  if (progressRing) {
+    progressRing.classList.add('resetting');
+    setTimeout(() => {
+      progressRing.classList.remove('resetting');
+      timerUpdateDisplay();
+      timerUpdateButtonUI();
+    }, 380);
+  } else {
+    timerUpdateDisplay();
+    timerUpdateButtonUI();
+  }
+}
+
+function timerBuildTicks() {
+  const group = document.getElementById('timer-ticks');
+  if (!group) return;
+
+  const CX = 120, CY = 120, RADIUS = 108;
+
+  for (let i = 0; i < 60; i++) {
+    const angle = (i / 60) * 2 * Math.PI - Math.PI / 2;
+    const x = CX + RADIUS * Math.cos(angle);
+    const y = CY + RADIUS * Math.sin(angle);
+    const isMajor = i % 5 === 0;
+
+    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    dot.setAttribute('cx', x.toFixed(3));
+    dot.setAttribute('cy', y.toFixed(3));
+    dot.setAttribute('r',  isMajor ? '3.5' : '2');
+    dot.classList.add('timer-tick');
+    if (isMajor) dot.classList.add('major');
+    group.appendChild(dot);
+  }
+}
+
+function openTimerPanel() {
+  const panel = document.getElementById('timer-panel');
+  panel.classList.remove('hidden', 'closing', 'minimized');
+  document.getElementById('timer-minimize-btn').textContent = '_';
+}
+
+function closeTimerPanel() {
+  const panel = document.getElementById('timer-panel');
+  panel.classList.add('closing');
+  panel.addEventListener('animationend', () => {
+    panel.classList.add('hidden');
+    panel.classList.remove('closing');
+  }, { once: true });
+}
+
+function toggleMinimizeTimer() {
+  const panel = document.getElementById('timer-panel');
+  const isMinimized = panel.classList.toggle('minimized');
+  document.getElementById('timer-minimize-btn').textContent = isMinimized ? '□' : '_';
+}
+
+function initTimerDrag() {
+  const panel  = document.getElementById('timer-panel');
+  const handle = document.getElementById('timer-drag-handle');
+
+  let dragging     = false;
+  let start_x      = 0, start_y = 0;
+  let panel_left   = 0, panel_top = 0;
+
+  handle.addEventListener('pointerdown', e => {
+    if (e.target.closest('.timer-window-btn')) return;
+    const rect = panel.getBoundingClientRect();
+    dragging   = true;
+    start_x    = e.clientX;
+    start_y    = e.clientY;
+    panel_left = rect.left;
+    panel_top  = rect.top;
+    handle.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+
+  handle.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const new_left = panel_left + (e.clientX - start_x);
+    const new_top  = panel_top  + (e.clientY - start_y);
+    // 不超出视口边界
+    const maxLeft = window.innerWidth  - panel.offsetWidth;
+    const maxTop  = window.innerHeight - panel.offsetHeight;
+    panel.style.left   = Math.max(0, Math.min(new_left, maxLeft)) + 'px';
+    panel.style.top    = Math.max(0, Math.min(new_top,  maxTop))  + 'px';
+    panel.style.right  = 'auto';
+    panel.style.bottom = 'auto';
+  });
+
+  handle.addEventListener('pointerup', () => { dragging = false; });
+}
+
+function initTimer() {
+  timerBuildTicks();
+  timerUpdateDisplay();
+  timerUpdateButtonUI();
+
+  // 导航栏触发按钮
+  document.getElementById('timer-btn').addEventListener('click', () => {
+    const panel = document.getElementById('timer-panel');
+    if (panel.classList.contains('hidden')) {
+      openTimerPanel();
+    } else {
+      closeTimerPanel();
+    }
+  });
+
+  document.getElementById('timer-close-btn').addEventListener('click', closeTimerPanel);
+  document.getElementById('timer-minimize-btn').addEventListener('click', toggleMinimizeTimer);
+
+  document.getElementById('timer-start-btn').addEventListener('click', () => {
+    if (timerState.running) timerPause();
+    else timerStart();
+  });
+
+  document.getElementById('timer-reset-btn').addEventListener('click', timerReset);
+
+  // 切回前台时立即从挂钟同步，修正后台期间 setInterval 被冻结的误差
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) timerSyncFromClock();
+  });
+
+  initTimerDrag();
+}
+
 // ── 初始化 ────────────────────────────────────────────────
 
 const state = {
@@ -1168,6 +1436,7 @@ function init() {
   initGoalPanelToggle();
   initMemo();
   initCalendar();
+  initTimer();
 }
 
 function initGoalPanelToggle() {
