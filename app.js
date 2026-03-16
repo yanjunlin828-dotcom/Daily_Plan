@@ -1116,6 +1116,9 @@ const timerState = {
   prevSecondsInMinute: -1,
 };
 
+// 缓存刻度 DOM 节点，避免每秒重复查询
+let timerTickEls = null;
+
 // 从挂钟时间同步经过秒数，规避后台 setInterval 降频问题
 function timerSyncFromClock() {
   if (!timerState.running || timerState.startTimestamp === null) return;
@@ -1148,7 +1151,9 @@ function timerUpdateRing(secondsInMinute) {
   if (!progressRing) return;
 
   const prev = timerState.prevSecondsInMinute;
-  const isRollover = secondsInMinute === 0 && prev > 0;
+  // 用 < 比较检测分钟跨越：无论 interval 是否跳过了第 0 秒都能正确触发
+  // 例如从第 59 秒直接跳到第 61 秒（interval 被节流），1 < 59 = true，环形正确重置
+  const isRollover = secondsInMinute < prev && prev > 0;
   const isReset    = timerState.seconds === 0;
 
   // 分钟跨越或重置时：无动画瞬间跳回空
@@ -1169,7 +1174,8 @@ function timerUpdateRing(secondsInMinute) {
 }
 
 function timerUpdateTicks(secondsInMinute) {
-  document.querySelectorAll('.timer-tick').forEach((tick, i) => {
+  if (!timerTickEls) return;
+  timerTickEls.forEach((tick, i) => {
     tick.classList.toggle('tick-active', i === secondsInMinute);
   });
 }
@@ -1280,6 +1286,8 @@ function timerBuildTicks() {
     if (isMajor) dot.classList.add('major');
     group.appendChild(dot);
   }
+  // 初始化后缓存刻度节点，避免每秒 querySelectorAll
+  timerTickEls = group.querySelectorAll('.timer-tick');
 }
 
 function openTimerPanel() {
@@ -1291,10 +1299,15 @@ function openTimerPanel() {
 function closeTimerPanel() {
   const panel = document.getElementById('timer-panel');
   panel.classList.add('closing');
-  panel.addEventListener('animationend', () => {
+  // 必须检查 e.target：环形/冒号/数字的动画结束事件会冒泡到 panel，
+  // 若用 { once: true } 不加 target 检查，子元素事件会提前触发导致面板瞬间消失
+  function onEnd(e) {
+    if (e.target !== panel) return;
+    panel.removeEventListener('animationend', onEnd);
     panel.classList.add('hidden');
     panel.classList.remove('closing');
-  }, { once: true });
+  }
+  panel.addEventListener('animationend', onEnd);
 }
 
 function toggleMinimizeTimer() {
