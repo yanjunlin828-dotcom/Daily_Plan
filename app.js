@@ -38,7 +38,7 @@ function loadAllData() {
 
 // 向下兼容：为旧任务补充新字段
 function migrateTask(task) {
-  return { priority: 'medium', tags: [], ...task };
+  return { priority: 'medium', tags: [], delay_days: 0, original_date: null, ...task };
 }
 
 function loadTasks(dateKey) {
@@ -140,7 +140,7 @@ function addTask(rawText) {
   const { cleanText, tags } = parseTagsFromText(rawText);
   if (!cleanText) return;
 
-  state.tasks = [...state.tasks, { id: generateId(), text: cleanText, done: false, createdAt: Date.now(), priority: 'medium', tags }];
+  state.tasks = [...state.tasks, { id: generateId(), text: cleanText, done: false, createdAt: Date.now(), priority: 'medium', tags, delay_days: 0, original_date: state.dateKey }];
   saveTasks(state.dateKey, state.tasks);
   renderTasks();
 }
@@ -246,6 +246,11 @@ function renderTasks() {
       li.classList.add('completing');
     }
 
+    // 延续任务特殊样式（仅未完成时显示）
+    if (!task.done && task.delay_days > 0) {
+      li.classList.add(task.delay_days >= 4 ? 'task-carried-danger' : 'task-carried');
+    }
+
     const checkbox = document.createElement('div');
     checkbox.className = 'task-checkbox';
     checkbox.textContent = task.done ? '[x]' : '[ ]';
@@ -255,6 +260,7 @@ function renderTasks() {
     textEl.textContent = task.text;
 
     const tagChips = buildTagChips(task);
+    const delayBadge = (!task.done && task.delay_days > 0) ? buildDelayBadge(task) : null;
     const priorityBtn = buildPriorityBtn(task, p => setPriority(task.id, p));
 
     const deleteBtn = document.createElement('button');
@@ -274,6 +280,7 @@ function renderTasks() {
       if (e.target.closest('.delete-btn')) return;
       if (e.target.closest('.priority-btn')) return;
       if (e.target.closest('.tag-chip')) return;
+      if (e.target.closest('.delay-badge')) return;
       if (e.target.tagName === 'INPUT') return;
       clearTimeout(click_timer);
       click_timer = setTimeout(() => toggleTask(task.id), 180);
@@ -287,12 +294,14 @@ function renderTasks() {
     li.appendChild(checkbox);
     li.appendChild(textEl);
     li.appendChild(tagChips);
+    if (delayBadge) li.appendChild(delayBadge);
     li.appendChild(priorityBtn);
     li.appendChild(deleteBtn);
     list.appendChild(li);
   });
 
   renderTagFilter();
+  updateCarryBtnState();
 }
 
 // ── 日期导航 ──────────────────────────────────────────────
@@ -378,6 +387,135 @@ function getDateStats(dateKey, allTasks, allMemos) {
     allDone: tasks.length > 0 && tasks.every(t => t.done),
     hasMemo: !!(allMemos[dateKey] && allMemos[dateKey].trim()),
   };
+}
+
+// ── 延续未完成任务 ─────────────────────────────────────────
+
+function getNextDateKey(dateKey) {
+  const [yyyy, mm, dd] = dateKey.split('-').map(Number);
+  const d = new Date(yyyy, mm - 1, dd);
+  d.setDate(d.getDate() + 1);
+  return dateToKey(d);
+}
+
+function buildDelayBadge(task) {
+  const days = task.delay_days || 0;
+  if (days === 0) return null;
+
+  const badge = document.createElement('span');
+  const is_danger = days >= 4;
+  badge.className = `delay-badge${is_danger ? ' delay-badge--danger' : ''}`;
+
+  // 火焰强度随延迟天数增加
+  const flames = days >= 5 ? '🔥🔥🔥' : days >= 3 ? '🔥🔥' : '🔥';
+  badge.textContent = `↩${days}天 ${flames}`;
+
+  const origin = task.original_date ? `原定 ${task.original_date}` : '';
+  badge.title = `已延续 ${days} 天${origin ? '（' + origin + '）' : ''}`;
+  return badge;
+}
+
+function updateCarryBtnState() {
+  const btn = document.getElementById('carry-btn');
+  if (!btn) return;
+  const has_pending = state.tasks.some(t => !t.done);
+  btn.classList.toggle('has-pending', has_pending);
+  btn.disabled = !has_pending;
+}
+
+function showCarryDoneBanner(count) {
+  const banner = document.getElementById('carry-done-banner');
+  if (!banner) return;
+  const count_el = document.getElementById('carry-done-count');
+  if (count_el) count_el.textContent = count;
+  banner.classList.remove('hidden');
+  // 4秒后自动消隐
+  setTimeout(() => banner.classList.add('hidden'), 4000);
+}
+
+// 执行实际数据迁移：将未完成任务移至下一天（delay_days + 1）
+// Bug修复1：接收 source_date_key 参数而非依赖 state.dateKey，
+// 防止用户在动画期间切换日期导致写入错误
+function doCarryOver(pending_tasks, source_date_key, next_date_key) {
+  const carried = pending_tasks.map(t => ({
+    ...t,
+    id: generateId(),
+    done: false,
+    delay_days: (t.delay_days || 0) + 1,
+    original_date: t.original_date || source_date_key,
+    createdAt: Date.now(),
+  }));
+
+  // 优化：一次读取 + 一次写入，代替原来的多次 localStorage I/O
+  const all = loadAllData();
+  const next_day_tasks = (all[next_date_key] || []).map(migrateTask);
+  all[next_date_key] = [...carried, ...next_day_tasks];
+  all[source_date_key] = (all[source_date_key] || []).filter(t => t.done);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+
+  // 仅在用户仍在查看源日期时才更新当前 state 和视图
+  if (state.dateKey === source_date_key) {
+    state.tasks = state.tasks.filter(t => t.done);
+    renderTasks();
+    showCarryDoneBanner(pending_tasks.length);
+  }
+}
+
+// 动画序列：高亮 → 浮出 "+N天" → 飞走 → 数据迁移
+function animateCarryOver(pending_tasks) {
+  // Bug修复1：在动画开始时捕获当前日期，防止用户在 ~1s 动画窗口内切换日期
+  // 导致 doCarryOver 操作错误的 dateKey
+  const source_date_key = state.dateKey;
+  const next_date_key   = getNextDateKey(source_date_key);
+  const carry_btn = document.getElementById('carry-btn');
+
+  // 按钮爆发效果
+  carry_btn.disabled = true;
+  carry_btn.classList.remove('has-pending');
+  carry_btn.classList.add('firing');
+  carry_btn.addEventListener('animationend', () => carry_btn.classList.remove('firing'), { once: true });
+
+  // Bug修复2：保持 task-element 的配对关系，避免 filter(Boolean) 破坏索引对应
+  const task_el_pairs = pending_tasks
+    .map(t => ({ task: t, el: document.querySelector(`[data-task-id="${t.id}"]`) }))
+    .filter(p => p.el !== null);
+
+  const HIGHLIGHT_STAGGER = 50;  // 高亮扫描间隔 ms
+  const FLYOUT_STAGGER    = 65;  // 飞走间隔 ms
+  const FLYOUT_ANIM       = 520; // 飞走动画时长 ms
+
+  // 阶段1：依次高亮 + 浮出 "+N天" 标签
+  task_el_pairs.forEach(({ task, el }, i) => {
+    setTimeout(() => {
+      el.classList.add('carry-highlight');
+
+      const new_days = (task.delay_days || 0) + 1;
+      const label = document.createElement('span');
+      label.className = 'carry-day-label';
+      label.textContent = `+${new_days}天`;
+      el.appendChild(label);
+      label.addEventListener('animationend', () => label.remove(), { once: true });
+    }, i * HIGHLIGHT_STAGGER);
+  });
+
+  // 阶段2：高亮结束后依次飞走
+  const flyout_start = task_el_pairs.length * HIGHLIGHT_STAGGER + 220;
+  task_el_pairs.forEach(({ el }, i) => {
+    setTimeout(() => {
+      el.classList.remove('carry-highlight');
+      el.classList.add('flying-out');
+    }, flyout_start + i * FLYOUT_STAGGER);
+  });
+
+  // 阶段3：全部飞走后执行数据迁移（传入捕获的 source_date_key）
+  const data_update_at = flyout_start + task_el_pairs.length * FLYOUT_STAGGER + FLYOUT_ANIM;
+  setTimeout(() => doCarryOver(pending_tasks, source_date_key, next_date_key), data_update_at);
+}
+
+function carryOverTasks() {
+  const pending_tasks = state.tasks.filter(t => !t.done);
+  if (pending_tasks.length === 0) return;
+  animateCarryOver(pending_tasks);
 }
 
 // ── 备忘录弹窗 ────────────────────────────────────────────
@@ -869,6 +1007,8 @@ function dropToDaily(goal) {
     createdAt: Date.now(),
     priority: goal.priority,
     tags: [...(goal.tags || [])],
+    delay_days: 0,
+    original_date: state.dateKey,
   };
   state.tasks = [new_task, ...state.tasks];
   saveTasks(state.dateKey, state.tasks);
@@ -1032,9 +1172,23 @@ function jumpToDate(dateKey) {
   state.dateKey   = dateKey;
   state.tasks     = loadTasks(dateKey);
   state.activeTag = null;
+
+  // 隐藏延续完成横幅（切换日期时清除）
+  const carry_banner = document.getElementById('carry-done-banner');
+  if (carry_banner) carry_banner.classList.add('hidden');
+
   document.getElementById('date-display').textContent = formatDateDisplay(dateKey);
   renderTasks();
   updateMemoBtnState();
+
+  // 延续进场动画：被延续的未完成任务依次从左滑入
+  const carried_els = document.querySelectorAll('.task-item.task-carried, .task-item.task-carried-danger');
+  carried_els.forEach((el, i) => {
+    setTimeout(() => {
+      el.classList.add('carry-fly-in');
+      el.addEventListener('animationend', () => el.classList.remove('carry-fly-in'), { once: true });
+    }, i * 60);
+  });
 
   // 若日常备忘录弹窗已打开，同步更新日期和内容
   const memoOverlay = document.getElementById('memo-overlay');
@@ -1423,6 +1577,7 @@ function init() {
 
   document.getElementById('prev-btn').addEventListener('click', () => navigateDate(-1));
   document.getElementById('next-btn').addEventListener('click', () => navigateDate(1));
+  document.getElementById('carry-btn').addEventListener('click', carryOverTasks);
 
   // 左栏初始化
   state.goals = loadGoals();

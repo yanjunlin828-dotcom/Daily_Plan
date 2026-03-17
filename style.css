@@ -1694,3 +1694,181 @@ body {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════
+   任务延续模块
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── 延续按钮 ────────────────────────────────────────────── */
+
+.carry-btn {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: #555;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, box-shadow 0.2s, opacity 0.2s;
+  letter-spacing: 0.04em;
+}
+
+.carry-btn:hover:not(:disabled) {
+  color: var(--warn);
+  border-color: var(--warn-dim);
+}
+
+.carry-btn.has-pending {
+  color: var(--warn);
+  border-color: var(--warn-dim);
+  animation: carryBtnPulse 2.5s ease-in-out infinite;
+}
+
+.carry-btn:disabled {
+  color: #2a2a2a;
+  border-color: #1e1e1e;
+  cursor: default;
+  pointer-events: none;
+}
+
+@keyframes carryBtnPulse {
+  0%, 100% { box-shadow: none; }
+  50%       { box-shadow: 0 0 10px var(--warn-dim); }
+}
+
+/* 点击时的爆发效果 */
+@keyframes carryBtnFire {
+  0%   { transform: scale(1);    box-shadow: none; }
+  40%  { transform: scale(1.12); box-shadow: 0 0 18px var(--warn-dim), 0 0 6px var(--warn-dim); }
+  100% { transform: scale(1);    box-shadow: none; }
+}
+
+.carry-btn.firing {
+  animation: carryBtnFire 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
+}
+
+/* ── 延迟徽章 ─────────────────────────────────────────────── */
+
+.delay-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background-color: #1e1a0f;
+  border: 1px solid var(--warn-dim);
+  color: var(--warn);
+  flex-shrink: 0;
+  font-family: inherit;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  /* Bug修复3：不在此处加弹入动画——renderTasks 会频繁重建 DOM，
+     每次都触发动画极为扰人。进场动画已由 carry-fly-in 整体承担。 */
+  cursor: default;
+}
+
+.delay-badge--danger {
+  color: var(--danger);
+  border-color: var(--danger-dim);
+  background-color: var(--danger-bg);
+  animation: delayBadgeDangerPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes delayBadgeDangerPulse {
+  0%, 100% { opacity: 1; box-shadow: none; }
+  50%       { opacity: 0.65; box-shadow: 0 0 6px rgba(255, 68, 68, 0.3); }
+}
+
+/* ── 被延续任务的卡片样式 ─────────────────────────────────── */
+
+.task-item.task-carried {
+  border-left: 2px solid var(--warn-dim);
+}
+
+.task-item.task-carried-danger {
+  border-left: 2px solid var(--danger-dim);
+  animation: carriedDangerBorder 2.5s ease-in-out infinite;
+}
+
+@keyframes carriedDangerBorder {
+  0%, 100% { border-left-color: var(--danger-dim); box-shadow: none; }
+  50%       { border-left-color: var(--danger); box-shadow: inset 3px 0 10px rgba(255, 68, 68, 0.12); }
+}
+
+/* ── 高亮扫描效果（点击延续时） ──────────────────────────── */
+
+.task-item.carry-highlight {
+  border-color: var(--warn-dim) !important;
+  background-color: rgba(255, 170, 0, 0.07) !important;
+  box-shadow: 0 0 14px rgba(255, 170, 0, 0.15) !important;
+}
+
+/* ── 飞走动画 ─────────────────────────────────────────────── */
+
+@keyframes carryFlyOut {
+  0%   { transform: translateX(0)    translateY(0)   scale(1);    opacity: 1; }
+  18%  { transform: translateX(10px) translateY(-3px) scale(1.02); opacity: 1; }
+  100% { transform: translateX(140%) translateY(-10px) scale(0.88); opacity: 0; }
+}
+
+.task-item.flying-out {
+  animation: carryFlyOut 0.52s cubic-bezier(0.4, 0, 0.9, 0.6) forwards;
+  pointer-events: none;
+}
+
+/* ── "+N天" 浮出文字 ─────────────────────────────────────── */
+
+.carry-day-label {
+  position: absolute;
+  right: 56px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  font-weight: bold;
+  color: var(--warn);
+  pointer-events: none;
+  z-index: 10;
+  text-shadow: 0 0 8px rgba(255, 170, 0, 0.6);
+  white-space: nowrap;
+  animation: dayLabelFloat 0.7s cubic-bezier(0.2, 0, 0.4, 1) forwards;
+}
+
+@keyframes dayLabelFloat {
+  0%   { transform: translateY(-50%); opacity: 1; }
+  30%  { transform: translateY(calc(-50% - 8px)); opacity: 1; }
+  100% { transform: translateY(calc(-50% - 32px)); opacity: 0; }
+}
+
+/* ── 进场动画（切换到含延续任务的日期时） ─────────────────── */
+
+@keyframes carryFlyIn {
+  0%   { opacity: 0; transform: translateX(-48px) scale(0.95); }
+  55%  { transform: translateX(5px) scale(1.01); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+.task-item.carry-fly-in {
+  animation: carryFlyIn 0.5s cubic-bezier(0.34, 1.36, 0.64, 1) forwards;
+}
+
+/* ── 延续完成提示横幅 ────────────────────────────────────── */
+
+.carry-done-banner {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--warn-dim);
+  border-radius: 8px;
+  background-color: rgba(255, 170, 0, 0.07);
+  color: var(--warn);
+  text-align: center;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  animation: carryDoneBannerIn 0.45s cubic-bezier(0.34, 1.36, 0.64, 1);
+}
+
+@keyframes carryDoneBannerIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
