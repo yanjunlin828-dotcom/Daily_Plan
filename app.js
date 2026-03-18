@@ -5,6 +5,7 @@ const PRIORITY_LABELS = { high: '高', medium: '中', low: '低' };
 const PRIORITY_COLORS = { high: '#e74c3c', medium: '#f1c40f', low: '#2ecc71' };
 const DRAG_HOLD_MS = 150;
 const DRAG_MOVE_THRESHOLD = 5;
+const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
 
 // ── 日期工具 ──────────────────────────────────────────────
 
@@ -36,6 +37,27 @@ function loadAllData() {
   }
 }
 
+// 存储失败时展示用户可见提示，避免静默丢失数据
+function showStorageError() {
+  if (document.getElementById('storage-error-toast')) return; // 防止重复显示
+  const toast = document.createElement('div');
+  toast.id = 'storage-error-toast';
+  toast.className = 'storage-error-toast';
+  toast.textContent = '⚠ 存储空间不足，数据可能未保存！请清理浏览器数据。';
+  document.body.appendChild(toast);
+  setTimeout(() => { if (toast.isConnected) toast.remove(); }, 6000);
+}
+
+// 统一写入入口：捕获 QuotaExceededError 等异常
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (e) {
+    console.error(`[daily_plan] 存储写入失败 (${key}):`, e);
+    showStorageError();
+  }
+}
+
 // 向下兼容：为旧任务补充新字段
 function migrateTask(task) {
   return { priority: 'medium', tags: [], delay_days: 0, original_date: null, ...task };
@@ -48,7 +70,33 @@ function loadTasks(dateKey) {
 function saveTasks(dateKey, tasks) {
   const all = loadAllData();
   all[dateKey] = tasks;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+  safeSetItem(STORAGE_KEY, JSON.stringify(all));
+}
+
+// ── WorkHard 持久化 ───────────────────────────────────────
+
+const WORKHARD_STORAGE_KEY = 'daily_plan_workhard';
+
+function loadWorkhardData() {
+  try {
+    return JSON.parse(localStorage.getItem(WORKHARD_STORAGE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function isWorkhard(dateKey) {
+  return !!loadWorkhardData()[dateKey];
+}
+
+function setWorkhard(dateKey, value) {
+  const data = loadWorkhardData();
+  if (value) {
+    data[dateKey] = true;
+  } else {
+    delete data[dateKey];
+  }
+  safeSetItem(WORKHARD_STORAGE_KEY, JSON.stringify(data));
 }
 
 // ── 标签解析 ──────────────────────────────────────────────
@@ -133,7 +181,8 @@ function renderTagFilter() {
 // ── 任务操作 ──────────────────────────────────────────────
 
 function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  // 9 位随机字符（vs 原来 3 位），极大降低同毫秒碰撞概率
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 11);
 }
 
 function addTask(rawText) {
@@ -231,10 +280,9 @@ function renderTasks() {
   allDoneBanner.classList.toggle('hidden', !allDone);
 
   // 列表渲染用过滤后的任务，按优先级排序（完成项置底）
-  const priority_order = { high: 0, medium: 1, low: 2 };
   const visibleTasks = [...getVisibleTasks()].sort((a, b) => {
     if (a.done !== b.done) return a.done ? 1 : -1;
-    return priority_order[a.priority] - priority_order[b.priority];
+    return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
   });
   list.innerHTML = '';
   visibleTasks.forEach(task => {
@@ -334,7 +382,7 @@ function saveMemo(dateKey, text) {
     } else {
       delete data[dateKey];
     }
-    localStorage.setItem(MEMO_STORAGE_KEY, JSON.stringify(data));
+    safeSetItem(MEMO_STORAGE_KEY, JSON.stringify(data));
   } catch { /* ignore */ }
 }
 
@@ -358,7 +406,7 @@ function saveGoalMemo(goalId, text) {
     } else {
       delete data[goalId];
     }
-    localStorage.setItem(GOAL_MEMO_STORAGE_KEY, JSON.stringify(data));
+    safeSetItem(GOAL_MEMO_STORAGE_KEY, JSON.stringify(data));
   } catch { /* ignore */ }
 }
 
@@ -367,7 +415,7 @@ function deleteGoalMemo(goalId) {
   try {
     const data = JSON.parse(localStorage.getItem(GOAL_MEMO_STORAGE_KEY)) || {};
     delete data[goalId];
-    localStorage.setItem(GOAL_MEMO_STORAGE_KEY, JSON.stringify(data));
+    safeSetItem(GOAL_MEMO_STORAGE_KEY, JSON.stringify(data));
   } catch { /* ignore */ }
 }
 
@@ -443,6 +491,7 @@ function doCarryOver(pending_tasks, source_date_key, next_date_key) {
     done: false,
     delay_days: (t.delay_days || 0) + 1,
     original_date: t.original_date || source_date_key,
+    carryShown: false,
     createdAt: Date.now(),
   }));
 
@@ -451,7 +500,7 @@ function doCarryOver(pending_tasks, source_date_key, next_date_key) {
   const next_day_tasks = (all[next_date_key] || []).map(migrateTask);
   all[next_date_key] = [...carried, ...next_day_tasks];
   all[source_date_key] = (all[source_date_key] || []).filter(t => t.done);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+  safeSetItem(STORAGE_KEY, JSON.stringify(all));
 
   // 仅在用户仍在查看源日期时才更新当前 state 和视图
   if (state.dateKey === source_date_key) {
@@ -495,6 +544,8 @@ function animateCarryOver(pending_tasks) {
       label.textContent = `+${new_days}天`;
       el.appendChild(label);
       label.addEventListener('animationend', () => label.remove(), { once: true });
+      // 兜底：动画未正常触发时（中途导航、浏览器节流）仍保证元素被清除
+      setTimeout(() => { if (label.isConnected) label.remove(); }, 1500);
     }, i * HIGHLIGHT_STAGGER);
   });
 
@@ -507,9 +558,12 @@ function animateCarryOver(pending_tasks) {
     }, flyout_start + i * FLYOUT_STAGGER);
   });
 
-  // 阶段3：全部飞走后执行数据迁移（传入捕获的 source_date_key）
+  // 阶段3：全部飞走后执行数据迁移，并自动跳转到明天（传入捕获的 source_date_key）
   const data_update_at = flyout_start + task_el_pairs.length * FLYOUT_STAGGER + FLYOUT_ANIM;
-  setTimeout(() => doCarryOver(pending_tasks, source_date_key, next_date_key), data_update_at);
+  setTimeout(() => {
+    doCarryOver(pending_tasks, source_date_key, next_date_key);
+    jumpToDate(next_date_key);
+  }, data_update_at);
 }
 
 function carryOverTasks() {
@@ -666,7 +720,7 @@ function loadGoals() {
 }
 
 function saveGoals() {
-  localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(state.goals));
+  safeSetItem(GOALS_STORAGE_KEY, JSON.stringify(state.goals));
 }
 
 // ── 长期目标输入解析 ──────────────────────────────────────
@@ -891,12 +945,11 @@ function toggleGoalPin(id) {
 }
 
 function getSortedGoals() {
-  const priority_order = { high: 0, medium: 1, low: 2 };
   const filtered = state.goals.filter(g => g.type === state.activeGoalView);
   return filtered.sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     if (a.done !== b.done) return a.done ? 1 : -1;
-    if (a.priority !== b.priority) return priority_order[a.priority] - priority_order[b.priority];
+    if (a.priority !== b.priority) return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
     return b.createdAt - a.createdAt;
   });
 }
@@ -1058,8 +1111,19 @@ function initDrag(e, goal) {
     cleanup();
     if (!is_dragging) return;
 
-    // 拖拽结束后浏览器会补发 click，用捕获阶段吸收它，防止误触发完成逻辑
-    source_el.addEventListener('click', e => e.stopPropagation(), { once: true, capture: true });
+    // 拖拽结束后浏览器会补发 click，用捕获阶段吸收它，防止误触发完成逻辑。
+    // 用具名引用替代 once:true：每次拖拽先移除上一个吸收器再注册新的，
+    // 避免快速多次拖拽时吸收器累积导致合法 click 被误拦截。
+    if (source_el._drag_absorber) {
+      source_el.removeEventListener('click', source_el._drag_absorber, { capture: true });
+    }
+    const absorber = e => e.stopPropagation();
+    source_el._drag_absorber = absorber;
+    source_el.addEventListener('click', absorber, { capture: true });
+    setTimeout(() => {
+      source_el.removeEventListener('click', absorber, { capture: true });
+      if (source_el._drag_absorber === absorber) source_el._drag_absorber = null;
+    }, 500);
 
     setTaskListDropActive(false);
     document.body.classList.remove('dragging-active');
@@ -1100,8 +1164,9 @@ function renderCalendarGrid(direction = null) {
   }
 
   // 一次性读取全量数据，避免循环内重复 IO
-  const allTasks = loadAllData();
-  const allMemos = loadAllMemos();
+  const allTasks    = loadAllData();
+  const allMemos    = loadAllMemos();
+  const allWorkhard = loadWorkhardData();
 
   const first_day_of_week = new Date(y, m, 1).getDay(); // 0=周日
   const days_in_month = new Date(y, m + 1, 0).getDate();
@@ -1119,6 +1184,7 @@ function renderCalendarGrid(direction = null) {
   for (let d = 1; d <= days_in_month; d++) {
     const dateKey = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const { allDone, hasMemo } = getDateStats(dateKey, allTasks, allMemos);
+    const is_workhard_day = !!allWorkhard[dateKey];
 
     const cell = document.createElement('div');
     cell.className = 'cal-day';
@@ -1131,9 +1197,9 @@ function renderCalendarGrid(direction = null) {
     if (dateKey === todayKey)    cell.classList.add('today');
     if (dateKey === selectedKey) cell.classList.add('selected');
 
-    // 全部完成：格子绿化发光
-    if (allDone) {
-      cell.classList.add('all-done');
+    // 全部完成或努力工作：统一使用金色 workhard 效果
+    if (allDone || is_workhard_day) {
+      cell.classList.add('workhard');
     }
 
     // 有备忘录：// 标记（★ 存在时 CSS 自动左移避免重叠）
@@ -1180,15 +1246,31 @@ function jumpToDate(dateKey) {
   document.getElementById('date-display').textContent = formatDateDisplay(dateKey);
   renderTasks();
   updateMemoBtnState();
+  updateWorkhardBtn();
 
-  // 延续进场动画：被延续的未完成任务依次从左滑入
-  const carried_els = document.querySelectorAll('.task-item.task-carried, .task-item.task-carried-danger');
-  carried_els.forEach((el, i) => {
-    setTimeout(() => {
-      el.classList.add('carry-fly-in');
-      el.addEventListener('animationend', () => el.classList.remove('carry-fly-in'), { once: true });
-    }, i * 60);
-  });
+  // 延续进场动画：仅对首次出现的延续任务（carryShown === false）播放一次
+  const tasks_to_animate = state.tasks.filter(t => !t.done && (t.delay_days || 0) > 0 && !t.carryShown);
+  if (tasks_to_animate.length > 0) {
+    // 立即标记为已展示并持久化，确保后续导航不再重复播放
+    state.tasks = state.tasks.map(t =>
+      tasks_to_animate.some(at => at.id === t.id) ? { ...t, carryShown: true } : t
+    );
+    saveTasks(dateKey, state.tasks);
+    // 捕获当前 dateKey，防止用户在 stagger 动画窗口内切换日期导致旧 setTimeout
+    // 操作新日期的 DOM 元素（即使 querySelector 找到同 ID 元素也可能误加样式）
+    const anim_date_key = dateKey;
+    tasks_to_animate.forEach(({ id }, i) => {
+      setTimeout(() => {
+        if (state.dateKey !== anim_date_key) return; // 用户已切换日期，丢弃旧动画
+        const el = document.querySelector(`[data-task-id="${id}"]`);
+        if (!el) return;
+        el.classList.add('carry-fly-in');
+        el.addEventListener('animationend', () => el.classList.remove('carry-fly-in'), { once: true });
+        // 兜底：animationend 若被吞则超时清除
+        setTimeout(() => el.classList.remove('carry-fly-in'), 700);
+      }, i * 60);
+    });
+  }
 
   // 若日常备忘录弹窗已打开，同步更新日期和内容
   const memoOverlay = document.getElementById('memo-overlay');
@@ -1446,6 +1528,40 @@ function timerBuildTicks() {
 
 function openTimerPanel() {
   const panel = document.getElementById('timer-panel');
+
+  // 首次显示（尚未 fixed 定位）：移至 body 并计算默认位置
+  if (panel.style.position !== 'fixed') {
+    const slot    = document.querySelector('.timer-slot');
+    const hardBtn = document.getElementById('workhard-btn');
+    const slotRect = slot ? slot.getBoundingClientRect() : { left: 100 };
+    const hardRect = hardBtn.getBoundingClientRect();
+
+    // 面板尺寸常量
+    const PANEL_WIDTH       = 320;
+    const PANEL_HEIGHT      = 380; // 展开态估算（用于防止展开后超出屏幕底部）
+    const MINIMIZED_HEIGHT  =  46; // 最小化态高度（padding 13+12 + 内容≈21，无 border-bottom）
+
+    // 垂直：最小化时 header 中线与 hard 按钮中线平齐
+    const hardCenterY = hardRect.top + hardRect.height / 2;
+    const panelTop    = Math.max(0, Math.min(
+      hardCenterY - MINIMIZED_HEIGHT / 2,
+      window.innerHeight - PANEL_HEIGHT
+    ));
+    // 水平：与 slot 左边对齐
+    const panelLeft = Math.max(0, Math.min(
+      slotRect.left,
+      window.innerWidth - PANEL_WIDTH
+    ));
+
+    document.body.appendChild(panel);
+    panel.style.position = 'fixed';
+    panel.style.top      = panelTop  + 'px';
+    panel.style.left     = panelLeft + 'px';
+    panel.style.right    = 'auto';
+    panel.style.bottom   = 'auto';
+    panel.style.width    = PANEL_WIDTH + 'px';
+  }
+
   panel.classList.remove('hidden', 'closing', 'minimized');
   document.getElementById('timer-minimize-btn').textContent = '_';
 }
@@ -1474,18 +1590,19 @@ function initTimerDrag() {
   const panel  = document.getElementById('timer-panel');
   const handle = document.getElementById('timer-drag-handle');
 
-  let dragging     = false;
-  let start_x      = 0, start_y = 0;
-  let panel_left   = 0, panel_top = 0;
+  let dragging   = false;
+  let start_x    = 0, start_y = 0;
+  let panel_left = 0, panel_top = 0;
 
   handle.addEventListener('pointerdown', e => {
     if (e.target.closest('.timer-window-btn')) return;
-    const rect = panel.getBoundingClientRect();
+
+    // panel 始终已是 fixed 定位（由 openTimerPanel 保证），直接开始拖拽
     dragging   = true;
     start_x    = e.clientX;
     start_y    = e.clientY;
-    panel_left = rect.left;
-    panel_top  = rect.top;
+    panel_left = parseFloat(panel.style.left)  || 0;
+    panel_top  = parseFloat(panel.style.top)   || 0;
     handle.setPointerCapture(e.pointerId);
     e.preventDefault();
   });
@@ -1494,16 +1611,16 @@ function initTimerDrag() {
     if (!dragging) return;
     const new_left = panel_left + (e.clientX - start_x);
     const new_top  = panel_top  + (e.clientY - start_y);
-    // 不超出视口边界
-    const maxLeft = window.innerWidth  - panel.offsetWidth;
-    const maxTop  = window.innerHeight - panel.offsetHeight;
-    panel.style.left   = Math.max(0, Math.min(new_left, maxLeft)) + 'px';
-    panel.style.top    = Math.max(0, Math.min(new_top,  maxTop))  + 'px';
-    panel.style.right  = 'auto';
-    panel.style.bottom = 'auto';
+    const maxLeft  = window.innerWidth  - panel.offsetWidth;
+    const maxTop   = window.innerHeight - panel.offsetHeight;
+    panel.style.left = Math.max(0, Math.min(new_left, maxLeft)) + 'px';
+    panel.style.top  = Math.max(0, Math.min(new_top,  maxTop))  + 'px';
   });
 
-  handle.addEventListener('pointerup', () => { dragging = false; });
+  handle.addEventListener('pointerup', e => {
+    dragging = false;
+    handle.releasePointerCapture(e.pointerId);
+  });
 }
 
 function initTimer() {
@@ -1536,7 +1653,115 @@ function initTimer() {
     if (!document.hidden) timerSyncFromClock();
   });
 
+  // 页面卸载时清理 interval，防止后台泄漏
+  window.addEventListener('pagehide', () => {
+    if (timerState.intervalId) {
+      clearInterval(timerState.intervalId);
+      timerState.intervalId = null;
+    }
+  });
+
   initTimerDrag();
+}
+
+// ── WorkHard 按钮 ─────────────────────────────────────────
+
+function updateWorkhardBtn() {
+  const btn = document.getElementById('workhard-btn');
+  if (!btn) return;
+  const active = isWorkhard(state.dateKey);
+  if (active) {
+    btn.classList.add('is-active');
+    btn.textContent = 'HARD!';
+    btn.title = '今天已标记努力！点击取消';
+  } else {
+    btn.classList.remove('is-active');
+    btn.textContent = 'hard?';
+    btn.title = '今天努力了吗？点击标记';
+  }
+}
+
+function animateWorkhardActivate(btn) {
+  const rect = btn.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+
+  // 粒子爆发
+  const CHARS = ['✦', '★', '◆', '✸', '+', '*', '·', '⚡', '✺', '◈'];
+  const COUNT = 16;
+  for (let i = 0; i < COUNT; i++) {
+    const angle = (360 / COUNT) * i + (Math.random() - 0.5) * 15;
+    const dist  = 55 + Math.random() * 85;
+    const tx    = Math.cos(angle * Math.PI / 180) * dist;
+    const ty    = Math.sin(angle * Math.PI / 180) * dist;
+    const dur   = 550 + Math.random() * 500;
+    const delay = Math.random() * 100;
+    const char  = CHARS[Math.floor(Math.random() * CHARS.length)];
+    const size  = 9 + Math.random() * 9;
+
+    const p = document.createElement('span');
+    p.className = 'workhard-particle';
+    p.textContent = char;
+    p.style.cssText = `left:${cx}px;top:${cy}px;font-size:${size}px;--tx:${tx}px;--ty:${ty}px;--dur:${dur}ms;--delay:${delay}ms;`;
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), dur + delay + 80);
+  }
+
+  // 三道涟漪环
+  for (let i = 0; i < 3; i++) {
+    const ring = document.createElement('div');
+    ring.className = 'workhard-ripple';
+    ring.style.cssText = `left:${cx}px;top:${cy}px;--dur:${680 + i * 160}ms;--delay:${i * 120}ms;`;
+    document.body.appendChild(ring);
+    setTimeout(() => ring.remove(), 1200);
+  }
+
+  // 弹出文字
+  const popup = document.createElement('div');
+  popup.className = 'workhard-popup-text';
+  popup.textContent = 'WORK HARD!';
+  popup.style.cssText = `left:${cx}px;top:${cy}px;`;
+  document.body.appendChild(popup);
+  setTimeout(() => popup.remove(), 1150);
+
+  // 屏幕边缘闪光
+  const flash = document.createElement('div');
+  flash.className = 'workhard-flash';
+  document.body.appendChild(flash);
+  setTimeout(() => flash.remove(), 700);
+
+  // 按钮自身爆炸
+  btn.classList.add('workhard-bursting');
+  setTimeout(() => btn.classList.remove('workhard-bursting'), 520);
+}
+
+function animateWorkhardDeactivate(btn) {
+  btn.classList.add('workhard-deactivating');
+  setTimeout(() => btn.classList.remove('workhard-deactivating'), 420);
+}
+
+function toggleWorkhard() {
+  const btn = document.getElementById('workhard-btn');
+  const currently_active = isWorkhard(state.dateKey);
+  setWorkhard(state.dateKey, !currently_active);
+
+  if (!currently_active) {
+    btn.classList.add('is-active');
+    btn.textContent = 'HARD!';
+    btn.title = '今天已标记努力！点击取消';
+    animateWorkhardActivate(btn);
+  } else {
+    btn.classList.remove('is-active');
+    btn.textContent = 'hard?';
+    btn.title = '今天努力了吗？点击标记';
+    animateWorkhardDeactivate(btn);
+  }
+
+  // 若日历已打开则刷新格子
+  const calOverlay = document.getElementById('cal-overlay');
+  if (calOverlay && !calOverlay.classList.contains('hidden')) {
+    renderCalendarGrid();
+  }
 }
 
 // ── 初始化 ────────────────────────────────────────────────
@@ -1578,6 +1803,8 @@ function init() {
   document.getElementById('prev-btn').addEventListener('click', () => navigateDate(-1));
   document.getElementById('next-btn').addEventListener('click', () => navigateDate(1));
   document.getElementById('carry-btn').addEventListener('click', carryOverTasks);
+  document.getElementById('workhard-btn').addEventListener('click', toggleWorkhard);
+  updateWorkhardBtn();
 
   // 左栏初始化
   state.goals = loadGoals();
@@ -1605,6 +1832,24 @@ function init() {
   initMemo();
   initCalendar();
   initTimer();
+  initKeyboardShortcuts();
+}
+
+function initKeyboardShortcuts() {
+  const KEY_MAP = { a: 'prev-btn', d: 'next-btn', q: 'cal-btn', w: 'memo-btn', e: 'timer-btn' };
+
+  document.addEventListener('keydown', e => {
+    // 输入框/编辑区内不触发
+    if (e.target.closest('input, textarea, [contenteditable]')) return;
+    // 有修饰键时不触发
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+    const btn_id = KEY_MAP[e.key];
+    if (!btn_id) return;
+
+    e.preventDefault();
+    document.getElementById(btn_id)?.click();
+  });
 }
 
 function initGoalPanelToggle() {

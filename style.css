@@ -1216,30 +1216,27 @@ body {
   box-shadow: 0 0 8px var(--accent-dim);
 }
 
+/* workhard selected：金色覆盖绿色 */
+.cal-day.workhard.selected {
+  background-color: rgba(200, 133, 10, 0.20);
+  color: #ffc840;
+  border-color: #c8850a;
+  animation: none;
+  box-shadow: 0 0 10px rgba(200, 133, 10, 0.45);
+}
+
+/* workhard + today + selected */
+.cal-day.workhard.today.selected {
+  border-color: #ffaa00;
+  box-shadow: 0 0 12px rgba(255, 170, 0, 0.55);
+}
+
 /* 其他月份溢出日（暂不显示，仅保留占位逻辑） */
 .cal-day.other-month {
   color: #2a2a2a;
   pointer-events: none;
 }
 
-/* 全部完成：整格绿化 + 外发光脉冲 */
-.cal-day.all-done {
-  background-color: rgba(0, 255, 136, 0.09);
-  border-color: var(--accent-dim);
-  color: var(--accent);
-  animation: calCellPulse 3s ease-in-out infinite;
-}
-
-@keyframes calCellPulse {
-  0%, 100% { box-shadow: 0 0 6px rgba(0, 255, 136, 0.10); }
-  50%       { box-shadow: 0 0 16px rgba(0, 255, 136, 0.28); }
-}
-
-/* all-done hover：停止脉冲，保留 scale */
-.cal-day.all-done:hover {
-  animation: none;
-  box-shadow: 0 0 16px rgba(0, 255, 136, 0.28);
-}
 
 /* 有备忘录的 // 标记 */
 .cal-day-mark {
@@ -1342,20 +1339,30 @@ body {
 /* ── 浮动面板外壳 ────────────────────────────────────────── */
 
 @keyframes timerPanelIn {
-  from { opacity: 0; transform: translateY(24px) scale(0.90); }
-  to   { opacity: 1; transform: translateY(0)    scale(1); }
+  from { opacity: 0; transform: translateY(-12px) scale(0.93); }
+  to   { opacity: 1; transform: translateY(0)     scale(1); }
 }
 
 @keyframes timerPanelOut {
-  from { opacity: 1; transform: translateY(0)    scale(1); }
-  to   { opacity: 0; transform: translateY(16px) scale(0.94); }
+  from { opacity: 1; transform: translateY(0)     scale(1); }
+  to   { opacity: 0; transform: translateY(-8px)  scale(0.95); }
+}
+
+/* 计时器槽位：date-line 中的弹性占位容器 */
+.timer-slot {
+  flex: 1;
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  min-width: 0;
 }
 
 .timer-panel {
-  position: fixed;
+  position: absolute;
   z-index: 800;
-  bottom: 72px;
-  right: 40px;
+  top: 0;
+  left: 0;
   width: 320px;
   background: rgba(10, 10, 10, 0.97);
   border: 1px solid var(--accent-dim);
@@ -1382,6 +1389,7 @@ body {
 .timer-panel.minimized .timer-body {
   display: none;
 }
+
 
 .timer-panel.minimized .timer-panel-header {
   border-bottom: none;
@@ -1849,7 +1857,7 @@ body {
 }
 
 .task-item.carry-fly-in {
-  animation: carryFlyIn 0.5s cubic-bezier(0.34, 1.36, 0.64, 1) forwards;
+  animation: carryFlyIn 0.5s cubic-bezier(0.34, 1.36, 0.64, 1) forwards !important;
 }
 
 /* ── 延续完成提示横幅 ────────────────────────────────────── */
@@ -1870,5 +1878,221 @@ body {
 @keyframes carryDoneBannerIn {
   from { opacity: 0; transform: translateY(10px) scale(0.96); }
   to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   WorkHard 按钮
+   ═══════════════════════════════════════════════════════════ */
+
+.workhard-btn {
+  margin-left: auto;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 16px;
+  background: transparent;
+  border: 1px solid #484848;
+  color: #686868;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  letter-spacing: 0.06em;
+  border-radius: 6px;
+  transition: color 0.3s, border-color 0.3s, background 0.3s, box-shadow 0.3s, text-shadow 0.3s;
+  user-select: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.workhard-btn:hover {
+  border-color: var(--accent-mid);
+  color: var(--accent);
+  text-shadow: 0 0 8px var(--accent-dim);
+}
+
+.workhard-btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-bg);
+  text-shadow: 0 0 8px var(--accent);
+  animation: workhardPulse 2.2s ease-in-out infinite;
+}
+
+/* 激活时按钮爆炸动画（覆盖 pulse） */
+.workhard-btn.workhard-bursting {
+  animation: workhardBurst 0.48s cubic-bezier(0.36, 0.07, 0.19, 0.97) forwards !important;
+}
+
+/* 取消时收缩动画 */
+.workhard-btn.workhard-deactivating {
+  animation: workhardDeactivate 0.38s ease-out forwards !important;
+}
+
+@keyframes workhardPulse {
+  0%, 100% {
+    box-shadow: 0 0 6px var(--accent-dim), 0 0 14px var(--accent-bg);
+    text-shadow: 0 0 6px var(--accent);
+  }
+  50% {
+    box-shadow: 0 0 18px var(--accent-mid), 0 0 36px var(--accent-dim);
+    text-shadow: 0 0 14px var(--accent), 0 0 28px var(--accent-dim);
+  }
+}
+
+@keyframes workhardBurst {
+  0%   { transform: scale(1); }
+  20%  { transform: scale(1.55) rotate(-3deg); }
+  45%  { transform: scale(1.35) rotate(2deg); }
+  70%  { transform: scale(0.9) rotate(-1deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+@keyframes workhardDeactivate {
+  0%   { transform: scale(1); opacity: 1; }
+  40%  { transform: scale(0.82); opacity: 0.5; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ── WorkHard 粒子 ────────────────────────────────────────── */
+
+.workhard-particle {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  color: var(--accent);
+  text-shadow: 0 0 6px var(--accent), 0 0 14px var(--accent);
+  transform-origin: center;
+  line-height: 1;
+  animation: workhardParticleFly var(--dur, 0.8s) var(--delay, 0s) ease-out both;
+}
+
+@keyframes workhardParticleFly {
+  0%   { transform: translate(-50%, -50%) scale(1.6); opacity: 1; }
+  70%  { opacity: 0.8; }
+  100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.1); opacity: 0; }
+}
+
+/* ── WorkHard 涟漪环 ──────────────────────────────────────── */
+
+.workhard-ripple {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9997;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  box-shadow: 0 0 10px var(--accent-dim);
+  transform: translate(-50%, -50%);
+  animation: workhardRippleExpand var(--dur, 0.9s) var(--delay, 0s) ease-out both;
+}
+
+@keyframes workhardRippleExpand {
+  0%   { width: 6px;   height: 6px;   opacity: 0.9; }
+  60%  { opacity: 0.6; }
+  100% { width: 260px; height: 260px; opacity: 0; }
+}
+
+/* ── WorkHard 弹出文字 ────────────────────────────────────── */
+
+.workhard-popup-text {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+  text-shadow: 0 0 12px var(--accent), 0 0 24px var(--accent), 0 0 48px var(--accent-dim);
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  animation: workhardTextPop 1.05s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+@keyframes workhardTextPop {
+  0%   { transform: translate(-50%, -50%) scale(0.15); opacity: 0; }
+  18%  { opacity: 1; }
+  40%  { transform: translate(-50%, -68%) scale(1.2); opacity: 1; }
+  100% { transform: translate(-50%, -140%) scale(0.85); opacity: 0; }
+}
+
+/* ── 屏幕边缘闪光 ─────────────────────────────────────────── */
+
+.workhard-flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9996;
+  background: radial-gradient(ellipse at center, transparent 50%, var(--accent-bg) 100%);
+  animation: workhardFlash 0.5s ease-out forwards;
+}
+
+@keyframes workhardFlash {
+  0%   { opacity: 0; }
+  14%  { opacity: 0.4; }
+  100% { opacity: 0; }
+}
+
+/* ── 日历 WorkHard 格子 ───────────────────────────────────── */
+
+/* 努力了：整格金色氛围，与 all-done 绿色对称 */
+.cal-day.workhard {
+  background-color: rgba(200, 133, 10, 0.09);
+  border-color: #c8850a55;
+  color: #d8a040;
+  animation: workhardCellGlow 3s ease-in-out infinite;
+}
+
+/* 精度匹配基础 hover 选择器（4+1 类），确保金色覆盖绿色 */
+.cal-day.workhard:not(.empty):not(.other-month):hover {
+  animation: none;
+  color: #ffc840;
+  border-color: #c8850a;
+  background-color: rgba(200, 133, 10, 0.20);
+  box-shadow: 0 0 14px rgba(200, 133, 10, 0.45);
+}
+
+@keyframes workhardCellGlow {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(200, 133, 10, 0.18);
+    border-color: #c8850a44;
+  }
+  50% {
+    box-shadow: 0 0 14px rgba(200, 133, 10, 0.42), 0 0 5px rgba(200, 133, 10, 0.18) inset;
+    border-color: #c8850a88;
+  }
+}
+
+
+/* ── 存储失败 Toast ───────────────────────────────────────── */
+
+.storage-error-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  padding: 10px 20px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 13px;
+  z-index: 9999;
+  white-space: nowrap;
+  animation: overlayIn 0.2s ease forwards;
+}
+
+/* 日历图例：金色小方块 */
+.cal-legend-hard-box {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid #c8850a88;
+  background: #c8850a0d;
+  box-shadow: 0 0 5px #c8850a44;
+  flex-shrink: 0;
+  margin-left: 6px;
 }
 
