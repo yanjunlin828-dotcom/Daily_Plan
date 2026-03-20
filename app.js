@@ -6,6 +6,19 @@ const PRIORITY_COLORS = { high: '#e74c3c', medium: '#f1c40f', low: '#2ecc71' };
 const DRAG_HOLD_MS = 150;
 const DRAG_MOVE_THRESHOLD = 5;
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
+const LONG_PRESS_MS             = 350;
+const LONG_PRESS_MOVE_THRESHOLD = 5;
+
+const API_BASE = 'http://localhost:8000/api';
+
+// 内存缓存：启动时从后端加载，之后所有读操作均从此处读取，写操作同步更新缓存并异步持久化到后端
+const cache = {
+  tasks:     {},  // { dateKey: Task[] }
+  workhard:  {},  // { dateKey: true }
+  memos:     {},  // { dateKey: string }
+  goalMemos: {},  // { goalId: string }
+  goals:     [],  // GoalItem[]
+};
 
 // ── 日期工具 ──────────────────────────────────────────────
 
@@ -27,50 +40,80 @@ function formatDateDisplay(dateKey) {
   return `${dateKey}  ${WEEK_DAYS[d.getDay()]}`;
 }
 
-// ── 数据持久化 ────────────────────────────────────────────
+// ── API 辅助函数 ───────────────────────────────────────────
 
-function loadAllData() {
+async function apiPut(path, body) {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
-  } catch {
-    return {};
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch (e) {
+    console.error(`[daily_plan] 保存失败 (${path}):`, e);
+    showStorageError();
+    // API 写入失败时，将当前缓存全量写入 localStorage 兜底
+    try {
+      localStorage.setItem(STORAGE_KEY,           JSON.stringify(cache.tasks));
+      localStorage.setItem(GOALS_STORAGE_KEY,     JSON.stringify(cache.goals));
+      localStorage.setItem(WORKHARD_STORAGE_KEY,  JSON.stringify(cache.workhard));
+      localStorage.setItem(MEMO_STORAGE_KEY,      JSON.stringify(cache.memos));
+      localStorage.setItem(GOAL_MEMO_STORAGE_KEY, JSON.stringify(cache.goalMemos));
+    } catch { /* ignore */ }
   }
 }
 
-// 存储失败时展示用户可见提示，避免静默丢失数据
-function showStorageError() {
-  if (document.getElementById('storage-error-toast')) return; // 防止重复显示
+async function apiDelete(path) {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch (e) {
+    console.error(`[daily_plan] 删除失败 (${path}):`, e);
+  }
+}
+
+// 错误提示 toast
+function showStorageError(msg = '⚠ 数据保存失败！请确认后端服务正在运行。') {
+  if (document.getElementById('storage-error-toast')) return;
   const toast = document.createElement('div');
   toast.id = 'storage-error-toast';
   toast.className = 'storage-error-toast';
-  toast.textContent = '⚠ 存储空间不足，数据可能未保存！请清理浏览器数据。';
+  toast.textContent = msg;
   document.body.appendChild(toast);
   setTimeout(() => { if (toast.isConnected) toast.remove(); }, 6000);
 }
 
-// 统一写入入口：捕获 QuotaExceededError 等异常
-function safeSetItem(key, value) {
-  try {
-    localStorage.setItem(key, value);
-  } catch (e) {
-    console.error(`[daily_plan] 存储写入失败 (${key}):`, e);
-    showStorageError();
-  }
+// 成功/信息提示 toast（绿色）
+function showInfoToast(msg) {
+  if (document.getElementById('storage-info-toast')) return;
+  const toast = document.createElement('div');
+  toast.id = 'storage-info-toast';
+  toast.className = 'storage-error-toast';
+  toast.style.cssText = 'background:#1a4731;border-color:#00ff88;color:#00ff88;';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => { if (toast.isConnected) toast.remove(); }, 5000);
+}
+
+// ── 数据持久化（读：内存缓存 / 写：后端 API）─────────────────
+
+function loadAllData() {
+  return cache.tasks;
 }
 
 // 向下兼容：为旧任务补充新字段
 function migrateTask(task) {
-  return { priority: 'medium', tags: [], delay_days: 0, original_date: null, ...task };
+  return { priority: 'medium', tags: [], delay_days: 0, original_date: null, subtasks: [], ...task };
 }
 
 function loadTasks(dateKey) {
-  return (loadAllData()[dateKey] || []).map(migrateTask);
+  return (cache.tasks[dateKey] || []).map(migrateTask);
 }
 
 function saveTasks(dateKey, tasks) {
-  const all = loadAllData();
-  all[dateKey] = tasks;
-  safeSetItem(STORAGE_KEY, JSON.stringify(all));
+  cache.tasks[dateKey] = tasks;
+  apiPut(`/tasks/${dateKey}`, tasks);
 }
 
 // ── WorkHard 持久化 ───────────────────────────────────────
@@ -78,25 +121,20 @@ function saveTasks(dateKey, tasks) {
 const WORKHARD_STORAGE_KEY = 'daily_plan_workhard';
 
 function loadWorkhardData() {
-  try {
-    return JSON.parse(localStorage.getItem(WORKHARD_STORAGE_KEY)) || {};
-  } catch {
-    return {};
-  }
+  return cache.workhard;
 }
 
 function isWorkhard(dateKey) {
-  return !!loadWorkhardData()[dateKey];
+  return !!cache.workhard[dateKey];
 }
 
 function setWorkhard(dateKey, value) {
-  const data = loadWorkhardData();
   if (value) {
-    data[dateKey] = true;
+    cache.workhard[dateKey] = true;
   } else {
-    delete data[dateKey];
+    delete cache.workhard[dateKey];
   }
-  safeSetItem(WORKHARD_STORAGE_KEY, JSON.stringify(data));
+  apiPut(`/workhard/${dateKey}`, { value });
 }
 
 // ── 标签解析 ──────────────────────────────────────────────
@@ -207,6 +245,8 @@ function toggleTask(id) {
 }
 
 function deleteTask(id) {
+  // 若删除的任务正好有子任务面板打开，先关闭面板
+  if (subtask_panel_task_id === id) closeSubtaskPanel();
   state.tasks = state.tasks.filter(t => t.id !== id);
   saveTasks(state.dateKey, state.tasks);
   renderTasks();
@@ -224,7 +264,7 @@ function startEditing(li, task, textEl) {
 
   editInput.addEventListener('click', e => e.stopPropagation());
 
-  li.replaceChild(editInput, textEl);
+  textEl.parentNode.replaceChild(editInput, textEl);
   editInput.focus();
   editInput.select();
 
@@ -303,9 +343,17 @@ function renderTasks() {
     checkbox.className = 'task-checkbox';
     checkbox.textContent = task.done ? '[x]' : '[ ]';
 
+    const text_block = document.createElement('div');
+    text_block.className = 'task-text-block';
+
     const textEl = document.createElement('span');
     textEl.className = 'task-text';
     textEl.textContent = task.text;
+    text_block.appendChild(textEl);
+
+    if (task.subtasks && task.subtasks.length > 0) {
+      text_block.appendChild(buildSubtaskInlineProgress(task));
+    }
 
     const tagChips = buildTagChips(task);
     const delayBadge = (!task.done && task.delay_days > 0) ? buildDelayBadge(task) : null;
@@ -329,6 +377,7 @@ function renderTasks() {
       if (e.target.closest('.priority-btn')) return;
       if (e.target.closest('.tag-chip')) return;
       if (e.target.closest('.delay-badge')) return;
+      if (e.target.closest('.subtask-inline-progress')) return;
       if (e.target.tagName === 'INPUT') return;
       clearTimeout(click_timer);
       click_timer = setTimeout(() => toggleTask(task.id), 180);
@@ -340,13 +389,20 @@ function renderTasks() {
     });
 
     li.appendChild(checkbox);
-    li.appendChild(textEl);
+    li.appendChild(text_block);
     li.appendChild(tagChips);
     if (delayBadge) li.appendChild(delayBadge);
     li.appendChild(priorityBtn);
     li.appendChild(deleteBtn);
+    initLongPress(li, task.id);
     list.appendChild(li);
   });
+
+  // 若子任务面板已打开，同步刷新其内容
+  if (subtask_panel_task_id) {
+    const panel_task = state.tasks.find(t => t.id === subtask_panel_task_id);
+    if (panel_task) renderSubtaskPanel(panel_task);
+  }
 
   renderTagFilter();
   updateCarryBtnState();
@@ -366,24 +422,16 @@ function navigateDate(offset) {
 const MEMO_STORAGE_KEY = 'daily_plan_memo';
 
 function loadMemo(dateKey) {
-  try {
-    const data = JSON.parse(localStorage.getItem(MEMO_STORAGE_KEY)) || {};
-    return data[dateKey] || '';
-  } catch {
-    return '';
-  }
+  return cache.memos[dateKey] || '';
 }
 
 function saveMemo(dateKey, text) {
-  try {
-    const data = JSON.parse(localStorage.getItem(MEMO_STORAGE_KEY)) || {};
-    if (text.trim()) {
-      data[dateKey] = text;
-    } else {
-      delete data[dateKey];
-    }
-    safeSetItem(MEMO_STORAGE_KEY, JSON.stringify(data));
-  } catch { /* ignore */ }
+  if (text.trim()) {
+    cache.memos[dateKey] = text;
+  } else {
+    delete cache.memos[dateKey];
+  }
+  apiPut(`/memo/${dateKey}`, { content: text });
 }
 
 // ── 目标备忘录持久化 ──────────────────────────────────────
@@ -391,41 +439,27 @@ function saveMemo(dateKey, text) {
 const GOAL_MEMO_STORAGE_KEY = 'daily_plan_goal_memo';
 
 function loadGoalMemo(goalId) {
-  try {
-    return (JSON.parse(localStorage.getItem(GOAL_MEMO_STORAGE_KEY)) || {})[goalId] || '';
-  } catch {
-    return '';
-  }
+  return cache.goalMemos[goalId] || '';
 }
 
 function saveGoalMemo(goalId, text) {
-  try {
-    const data = JSON.parse(localStorage.getItem(GOAL_MEMO_STORAGE_KEY)) || {};
-    if (text.trim()) {
-      data[goalId] = text;
-    } else {
-      delete data[goalId];
-    }
-    safeSetItem(GOAL_MEMO_STORAGE_KEY, JSON.stringify(data));
-  } catch { /* ignore */ }
+  if (text.trim()) {
+    cache.goalMemos[goalId] = text;
+  } else {
+    delete cache.goalMemos[goalId];
+  }
+  apiPut(`/goal-memo/${goalId}`, { content: text });
 }
 
 // 目标删除时清理其备忘录，防止存储泄漏
 function deleteGoalMemo(goalId) {
-  try {
-    const data = JSON.parse(localStorage.getItem(GOAL_MEMO_STORAGE_KEY)) || {};
-    delete data[goalId];
-    safeSetItem(GOAL_MEMO_STORAGE_KEY, JSON.stringify(data));
-  } catch { /* ignore */ }
+  delete cache.goalMemos[goalId];
+  apiDelete(`/goal-memo/${goalId}`);
 }
 
 // 一次性读取全量备忘录（供日历渲染使用，避免逐日读取）
 function loadAllMemos() {
-  try {
-    return JSON.parse(localStorage.getItem(MEMO_STORAGE_KEY)) || {};
-  } catch {
-    return {};
-  }
+  return cache.memos;
 }
 
 // 获取某日期的任务/备忘录统计状态
@@ -495,12 +529,12 @@ function doCarryOver(pending_tasks, source_date_key, next_date_key) {
     createdAt: Date.now(),
   }));
 
-  // 优化：一次读取 + 一次写入，代替原来的多次 localStorage I/O
-  const all = loadAllData();
-  const next_day_tasks = (all[next_date_key] || []).map(migrateTask);
-  all[next_date_key] = [...carried, ...next_day_tasks];
-  all[source_date_key] = (all[source_date_key] || []).filter(t => t.done);
-  safeSetItem(STORAGE_KEY, JSON.stringify(all));
+  // 直接操作内存缓存，再分别保存两天的数据到后端
+  const next_day_tasks = (cache.tasks[next_date_key] || []).map(migrateTask);
+  cache.tasks[next_date_key] = [...carried, ...next_day_tasks];
+  cache.tasks[source_date_key] = (cache.tasks[source_date_key] || []).filter(t => t.done);
+  apiPut(`/tasks/${next_date_key}`, cache.tasks[next_date_key]);
+  apiPut(`/tasks/${source_date_key}`, cache.tasks[source_date_key]);
 
   // 仅在用户仍在查看源日期时才更新当前 state 和视图
   if (state.dateKey === source_date_key) {
@@ -711,16 +745,12 @@ function migrateGoalItem(item) {
 }
 
 function loadGoals() {
-  try {
-    const data = JSON.parse(localStorage.getItem(GOALS_STORAGE_KEY));
-    return (Array.isArray(data) ? data : []).map(migrateGoalItem);
-  } catch {
-    return [];
-  }
+  return (Array.isArray(cache.goals) ? cache.goals : []).map(migrateGoalItem);
 }
 
 function saveGoals() {
-  safeSetItem(GOALS_STORAGE_KEY, JSON.stringify(state.goals));
+  cache.goals = [...state.goals];
+  apiPut('/goals', state.goals);
 }
 
 // ── 长期目标输入解析 ──────────────────────────────────────
@@ -1235,6 +1265,9 @@ function renderCalendarGrid(direction = null) {
 
 // 跳转到指定日期（更新主页任务视图，不操作日历弹窗）
 function jumpToDate(dateKey) {
+  // 切换日期时关闭子任务面板，避免面板残留显示其他日期的任务数据
+  closeSubtaskPanel();
+
   state.dateKey   = dateKey;
   state.tasks     = loadTasks(dateKey);
   state.activeTag = null;
@@ -1764,6 +1797,577 @@ function toggleWorkhard() {
   }
 }
 
+// ── 子任务功能 ────────────────────────────────────────────
+
+let subtask_panel_task_id = null; // 当前打开的子任务面板对应的任务 ID
+
+// 获取子任务完成进度
+function getSubtaskProgress(task) {
+  const subtasks = task.subtasks || [];
+  return { done: subtasks.filter(s => s.done).length, total: subtasks.length };
+}
+
+// 构建主任务条目内嵌进度条元素
+function buildSubtaskInlineProgress(task) {
+  const { done, total } = getSubtaskProgress(task);
+  const pct       = Math.round((done / total) * 100);
+  const all_done  = done === total;
+  const fill_color = all_done ? 'var(--accent)' : PRIORITY_COLORS[task.priority];
+
+  const container = document.createElement('div');
+  container.className = 'subtask-inline-progress';
+
+  const bar_wrap = document.createElement('div');
+  bar_wrap.className = 'subtask-inline-bar';
+
+  const fill = document.createElement('div');
+  fill.className = `subtask-inline-fill${all_done ? ' all-done' : ''}`;
+  fill.style.width = `${pct}%`;
+  fill.style.background = fill_color;
+  bar_wrap.appendChild(fill);
+
+  const count = document.createElement('span');
+  count.className = `subtask-inline-count${all_done ? ' all-done' : ''}`;
+  count.textContent = `${done}/${total}${all_done ? ' ✓' : ''}`;
+
+  container.appendChild(bar_wrap);
+  container.appendChild(count);
+
+  // 点击内嵌进度条直接打开子任务面板
+  container.addEventListener('click', e => {
+    e.stopPropagation();
+    openSubtaskPanel(task.id);
+  });
+
+  return container;
+}
+
+// 更新主任务条目内的进度条（不触发整体 renderTasks）
+function updateSubtaskInline(taskId) {
+  const task = state.tasks.find(t => t.id === taskId);
+  if (!task) return;
+
+  const task_el = document.querySelector(`[data-task-id="${taskId}"]`);
+  if (!task_el) return;
+
+  const text_block = task_el.querySelector('.task-text-block');
+  if (!text_block) return;
+
+  const existing = text_block.querySelector('.subtask-inline-progress');
+  if (existing) existing.remove();
+
+  const subtasks = task.subtasks || [];
+  if (subtasks.length === 0) return;
+
+  const new_progress = buildSubtaskInlineProgress(task);
+  text_block.appendChild(new_progress);
+
+  // 全部完成时触发迷你庆祝粒子
+  const { done, total } = getSubtaskProgress(task);
+  if (done === total && total > 0) {
+    spawnSubtaskParticles(task_el);
+  }
+}
+
+// 全部子任务完成时的迷你粒子爆发
+function spawnSubtaskParticles(el) {
+  const rect  = el.getBoundingClientRect();
+  const cx    = rect.left + 60;
+  const cy    = rect.top + rect.height / 2;
+  const CHARS = ['✦', '+', '·', '★', '◆'];
+
+  for (let i = 0; i < 8; i++) {
+    const angle = (360 / 8) * i;
+    const dist  = 20 + Math.random() * 28;
+    const tx    = Math.cos(angle * Math.PI / 180) * dist;
+    const ty    = Math.sin(angle * Math.PI / 180) * dist;
+    const char  = CHARS[Math.floor(Math.random() * CHARS.length)];
+
+    const p = document.createElement('span');
+    p.className  = 'subtask-complete-particle';
+    p.textContent = char;
+    p.style.cssText = `left:${cx}px;top:${cy}px;--tx:${tx}px;--ty:${ty}px;`;
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 720);
+  }
+}
+
+// ── 子任务 CRUD ───────────────────────────────────────────
+
+function addSubtask(taskId, text) {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+
+  state.tasks = state.tasks.map(t => {
+    if (t.id !== taskId) return t;
+    const new_sub = { id: generateId(), text: trimmed, done: false, createdAt: Date.now() };
+    return { ...t, subtasks: [...(t.subtasks || []), new_sub] };
+  });
+
+  saveTasks(state.dateKey, state.tasks);
+
+  const task = state.tasks.find(t => t.id === taskId);
+  renderSubtaskPanel(task);
+  updateSubtaskInline(taskId);
+}
+
+function toggleSubtask(taskId, subtaskId) {
+  let main_task_reopened = false;
+
+  state.tasks = state.tasks.map(t => {
+    if (t.id !== taskId) return t;
+    const subtasks = (t.subtasks || []).map(s =>
+      s.id === subtaskId ? { ...s, done: !s.done } : s
+    );
+    // 若主任务已完成而子任务被反选，联动恢复主任务
+    const any_undone = subtasks.some(s => !s.done);
+    const should_reopen = t.done && any_undone;
+    if (should_reopen) main_task_reopened = true;
+    return { ...t, subtasks, done: should_reopen ? false : t.done };
+  });
+
+  saveTasks(state.dateKey, state.tasks);
+
+  const task = state.tasks.find(t => t.id === taskId);
+  renderSubtaskPanel(task);
+  updateSubtaskInline(taskId);
+
+  // 主任务状态变化时刷新整体视图（完成/未完成排序会改变）
+  if (main_task_reopened) {
+    renderTasks();
+  }
+
+  checkAutoComplete(taskId);
+}
+
+function deleteSubtask(taskId, subtaskId) {
+  state.tasks = state.tasks.map(t => {
+    if (t.id !== taskId) return t;
+    return { ...t, subtasks: (t.subtasks || []).filter(s => s.id !== subtaskId) };
+  });
+
+  saveTasks(state.dateKey, state.tasks);
+
+  const task = state.tasks.find(t => t.id === taskId);
+  renderSubtaskPanel(task);
+  updateSubtaskInline(taskId);
+}
+
+function editSubtask(taskId, subtaskId, newText) {
+  const trimmed = newText.trim();
+  if (!trimmed) return;
+
+  state.tasks = state.tasks.map(t => {
+    if (t.id !== taskId) return t;
+    return {
+      ...t,
+      subtasks: (t.subtasks || []).map(s =>
+        s.id === subtaskId ? { ...s, text: trimmed } : s
+      ),
+    };
+  });
+
+  saveTasks(state.dateKey, state.tasks);
+
+  const task = state.tasks.find(t => t.id === taskId);
+  renderSubtaskPanel(task);
+}
+
+// ── 子任务全完成自动提示 ──────────────────────────────────
+
+function checkAutoComplete(taskId) {
+  const task = state.tasks.find(t => t.id === taskId);
+  if (!task || task.done) return;
+
+  const { done, total } = getSubtaskProgress(task);
+  if (total > 0 && done === total) {
+    showSubtaskCompleteToast(taskId);
+  }
+}
+
+function showSubtaskCompleteToast(taskId) {
+  if (document.getElementById('subtask-autocomplete-toast')) return;
+
+  const toast = document.createElement('div');
+  toast.id = 'subtask-autocomplete-toast';
+  toast.className = 'subtask-toast';
+
+  const msg = document.createElement('span');
+  msg.className = 'subtask-toast-text';
+  msg.textContent = '所有子任务已完成，标记主任务为完成？';
+
+  const actions = document.createElement('div');
+  actions.className = 'subtask-toast-actions';
+
+  const yes_btn = document.createElement('button');
+  yes_btn.className = 'subtask-toast-yes';
+  yes_btn.textContent = '是';
+
+  const no_btn = document.createElement('button');
+  no_btn.className = 'subtask-toast-no';
+  no_btn.textContent = '否';
+
+  actions.appendChild(yes_btn);
+  actions.appendChild(no_btn);
+  toast.appendChild(msg);
+  toast.appendChild(actions);
+  document.body.appendChild(toast);
+
+  const auto_dismiss = setTimeout(() => { if (toast.isConnected) toast.remove(); }, 6000);
+
+  yes_btn.addEventListener('click', () => {
+    clearTimeout(auto_dismiss);
+    toast.remove();
+    state.tasks = state.tasks.map(t =>
+      t.id === taskId ? { ...t, done: true } : t
+    );
+    state.completingId = taskId;
+    saveTasks(state.dateKey, state.tasks);
+    renderTasks();
+    state.completingId = null;
+    closeSubtaskPanel();
+  });
+
+  no_btn.addEventListener('click', () => {
+    clearTimeout(auto_dismiss);
+    toast.remove();
+  });
+}
+
+// ── 子任务面板 ────────────────────────────────────────────
+
+function closeSubtaskPanel() {
+  const overlay = document.getElementById('subtask-overlay');
+  if (!overlay || overlay.classList.contains('hidden')) return;
+
+  overlay.classList.add('closing');
+  subtask_panel_task_id = null;
+
+  function onEnd(e) {
+    if (e.target !== overlay) return;
+    if (!overlay.classList.contains('closing')) return;
+    overlay.classList.add('hidden');
+    overlay.classList.remove('closing');
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.removeEventListener('animationend', onEnd);
+  }
+  overlay.addEventListener('animationend', onEnd);
+
+  // 兜底：animationend 未触发时强制隐藏
+  setTimeout(() => {
+    if (overlay.classList.contains('closing')) {
+      overlay.classList.add('hidden');
+      overlay.classList.remove('closing');
+      overlay.setAttribute('aria-hidden', 'true');
+    }
+  }, 350);
+}
+
+// 渲染面板内子任务列表和进度（面板已打开时调用）
+function renderSubtaskPanel(task) {
+  if (!task || subtask_panel_task_id !== task.id) return;
+
+  const overlay = document.getElementById('subtask-overlay');
+  if (!overlay || overlay.classList.contains('hidden')) return;
+
+  const panel = document.getElementById('subtask-panel');
+  if (!panel) return;
+
+  const subtasks  = task.subtasks || [];
+  const { done, total } = getSubtaskProgress(task);
+  const pct       = total === 0 ? 0 : Math.round((done / total) * 100);
+  const all_done  = total > 0 && done === total;
+  const fill_color = all_done ? 'var(--accent)' : PRIORITY_COLORS[task.priority];
+
+  // 更新进度条和计数
+  const fill_el = panel.querySelector('.subtask-panel-progress-fill');
+  if (fill_el) {
+    fill_el.style.width = `${pct}%`;
+    fill_el.style.background = fill_color;
+  }
+
+  const count_el = panel.querySelector('.subtask-panel-progress-count');
+  if (count_el) {
+    count_el.textContent = total === 0 ? '暂无子任务' : `${done} / ${total} 完成`;
+    count_el.className = `subtask-panel-progress-count${all_done ? ' all-done' : ''}`;
+  }
+
+  // 渲染子任务列表
+  const list = panel.querySelector('.subtask-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  subtasks.forEach(sub => {
+    const item = document.createElement('div');
+    item.className = `subtask-item${sub.done ? ' done' : ''}`;
+
+    const checkbox = document.createElement('span');
+    checkbox.className = 'subtask-checkbox';
+    checkbox.textContent = sub.done ? '[x]' : '[ ]';
+
+    const text_el = document.createElement('span');
+    text_el.className = 'subtask-text';
+    text_el.textContent = sub.text;
+
+    const del_btn = document.createElement('button');
+    del_btn.className = 'subtask-delete-btn';
+    del_btn.textContent = '×';
+    del_btn.title = '删除子任务';
+    del_btn.addEventListener('click', e => {
+      e.stopPropagation();
+      deleteSubtask(task.id, sub.id);
+    });
+
+    // 整个条目单击触发完成（与主任务行为一致），双击文字进入编辑
+    let subtask_click_timer = null;
+    text_el.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      clearTimeout(subtask_click_timer);
+      startSubtaskEditing(item, task.id, sub, text_el);
+    });
+    item.addEventListener('click', e => {
+      if (e.target.closest('.subtask-delete-btn')) return;
+      if (e.target.tagName === 'INPUT') return;
+      clearTimeout(subtask_click_timer);
+      subtask_click_timer = setTimeout(() => toggleSubtask(task.id, sub.id), 180);
+    });
+
+    item.appendChild(checkbox);
+    item.appendChild(text_el);
+    item.appendChild(del_btn);
+    list.appendChild(item);
+  });
+}
+
+// 子任务内联编辑
+function startSubtaskEditing(item, taskId, sub, text_el) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'subtask-edit-input';
+  input.value = sub.text;
+  input.addEventListener('click', e => e.stopPropagation());
+  item.replaceChild(input, text_el);
+  input.focus();
+  input.select();
+
+  let committed = false;
+
+  function commit() {
+    if (committed) return;
+    committed = true;
+    // input.value.trim() 为空时回退到原始文本，防止纯空格提交后面板 DOM 状态异常
+    editSubtask(taskId, sub.id, input.value.trim() || sub.text);
+  }
+
+  function cancel() {
+    if (committed) return;
+    committed = true;
+    const task = state.tasks.find(t => t.id === taskId);
+    if (task) renderSubtaskPanel(task);
+  }
+
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') commit();
+    if (e.key === 'Escape') cancel();
+  });
+  input.addEventListener('blur', commit);
+}
+
+// 打开子任务面板
+function openSubtaskPanel(taskId) {
+  // 再次点击同一任务则关闭
+  if (subtask_panel_task_id === taskId) {
+    closeSubtaskPanel();
+    return;
+  }
+
+  const overlay = document.getElementById('subtask-overlay');
+  if (!overlay) return;
+
+  const task = state.tasks.find(t => t.id === taskId);
+  if (!task) return;
+
+  subtask_panel_task_id = taskId;
+
+  // 先构建面板骨架（不渲染子任务列表，overlay 此时还是 hidden）
+  buildSubtaskPanel(task);
+
+  // 居中显示（与备忘录弹窗相同逻辑）
+  overlay.classList.remove('hidden', 'closing');
+  overlay.setAttribute('aria-hidden', 'false');
+
+  // overlay 显示后再渲染子任务列表（此时可通过 overlay 可见性检查）
+  renderSubtaskPanel(task);
+
+  // 自动聚焦添加输入框
+  setTimeout(() => {
+    const add_input = document.querySelector('.subtask-add-input');
+    if (add_input) add_input.focus();
+  }, 60);
+}
+
+// 构建面板完整 DOM 结构
+function buildSubtaskPanel(task) {
+  const panel = document.getElementById('subtask-panel');
+
+  // 头部
+  const header = document.createElement('div');
+  header.className = 'subtask-panel-header';
+
+  const prompt = document.createElement('span');
+  prompt.className = 'subtask-panel-prompt';
+  prompt.textContent = '>';
+
+  const title = document.createElement('span');
+  title.className = 'subtask-panel-header-title';
+  title.textContent = task.text;
+
+  const close_btn = document.createElement('button');
+  close_btn.className = 'subtask-panel-close';
+  close_btn.textContent = '×';
+  close_btn.addEventListener('click', closeSubtaskPanel);
+
+  header.appendChild(prompt);
+  header.appendChild(title);
+  header.appendChild(close_btn);
+
+  // 进度区域
+  const progress_section = document.createElement('div');
+  progress_section.className = 'subtask-panel-progress';
+
+  const bar_wrap = document.createElement('div');
+  bar_wrap.className = 'subtask-panel-progress-bar';
+
+  const fill = document.createElement('div');
+  fill.className = 'subtask-panel-progress-fill';
+  fill.style.background = PRIORITY_COLORS[task.priority];
+  bar_wrap.appendChild(fill);
+
+  const count_el = document.createElement('span');
+  count_el.className = 'subtask-panel-progress-count';
+  count_el.textContent = '暂无子任务';
+
+  progress_section.appendChild(bar_wrap);
+  progress_section.appendChild(count_el);
+
+  // 子任务列表（内容由 renderSubtaskPanel 填充）
+  const list = document.createElement('div');
+  list.className = 'subtask-list';
+
+  // 添加子任务区域
+  const add_section = document.createElement('div');
+  add_section.className = 'subtask-add-section';
+
+  const add_prompt = document.createElement('span');
+  add_prompt.className = 'subtask-add-prompt';
+  add_prompt.textContent = '+';
+
+  const add_input = document.createElement('input');
+  add_input.type = 'text';
+  add_input.className = 'subtask-add-input';
+  add_input.placeholder = '添加子任务... (Enter 提交)';
+  add_input.autocomplete = 'off';
+  add_input.spellcheck = false;
+  add_input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      const text = add_input.value.trim();
+      if (!text) {
+        add_input.classList.add('shake');
+        add_input.addEventListener('animationend', () => add_input.classList.remove('shake'), { once: true });
+        return;
+      }
+      addSubtask(task.id, text);
+      add_input.value = '';
+      add_input.focus();
+    }
+    if (e.key === 'Escape') closeSubtaskPanel();
+  });
+
+  add_section.appendChild(add_prompt);
+  add_section.appendChild(add_input);
+
+  // 组装面板骨架（子任务内容由 openSubtaskPanel 在 overlay 显示后填充）
+  panel.innerHTML = '';
+  panel.appendChild(header);
+  panel.appendChild(progress_section);
+  panel.appendChild(list);
+  panel.appendChild(add_section);
+}
+
+// 注册子任务面板全局事件（overlay 点击关闭、Esc 关闭）
+function initSubtaskPanel() {
+  const overlay = document.getElementById('subtask-overlay');
+  // 只有点击遮罩背景本身（而非面板内部）才关闭
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) closeSubtaskPanel();
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (!overlay.classList.contains('hidden')) closeSubtaskPanel();
+  });
+}
+
+// ── 长按检测 ──────────────────────────────────────────────
+
+function initLongPress(li, taskId) {
+  let press_timer        = null;
+  let start_x            = 0, start_y = 0;
+  let long_press_did_fire = false;
+
+  li.addEventListener('pointerdown', e => {
+    // 仅响应鼠标左键或触摸
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // 忽略交互元素上的按压，避免干扰现有按钮和标签
+    if (e.target.closest('.delete-btn, .priority-btn, .tag-chip, .delay-badge, .task-checkbox, input')) return;
+
+    // 清除可能残留的旧计时器（多指触摸等异常情况）
+    clearTimeout(press_timer);
+    press_timer = null;
+
+    start_x = e.clientX;
+    start_y = e.clientY;
+    long_press_did_fire = false;
+
+    press_timer = setTimeout(() => {
+      long_press_did_fire = true;
+      li.classList.add('pressing');
+      if (navigator.vibrate) navigator.vibrate(40); // 移动端触觉反馈
+      openSubtaskPanel(taskId);
+    }, LONG_PRESS_MS);
+  });
+
+  li.addEventListener('pointermove', e => {
+    if (!press_timer) return;
+    // 移动超出阈值视为滚动意图，取消长按
+    if (Math.hypot(e.clientX - start_x, e.clientY - start_y) > LONG_PRESS_MOVE_THRESHOLD) {
+      clearTimeout(press_timer);
+      press_timer = null;
+    }
+  });
+
+  li.addEventListener('pointerup', () => {
+    clearTimeout(press_timer);
+    press_timer = null;
+    setTimeout(() => li.classList.remove('pressing'), 80);
+  });
+
+  li.addEventListener('pointercancel', () => {
+    clearTimeout(press_timer);
+    press_timer = null;
+    li.classList.remove('pressing');
+  });
+
+  // 长按触发后在捕获阶段吸收下一次 click，防止误触发 toggleTask
+  li.addEventListener('click', e => {
+    if (!long_press_did_fire) return;
+    long_press_did_fire = false;
+    e.stopPropagation();
+  }, { capture: true });
+}
+
 // ── 初始化 ────────────────────────────────────────────────
 
 const state = {
@@ -1780,7 +2384,86 @@ const state = {
   calMonth: new Date().getMonth(),   // 0-indexed
 };
 
-function init() {
+// ── 后端数据加载与 localStorage 自动迁移 ─────────────────────
+
+function _isBackendEmpty(data) {
+  return (
+    Object.keys(data.tasks      || {}).length === 0 &&
+    (data.goals                 || []).length === 0  &&
+    Object.keys(data.workhard   || {}).length === 0  &&
+    Object.keys(data.memos      || {}).length === 0  &&
+    Object.keys(data.goal_memos || {}).length === 0
+  );
+}
+
+async function _migrateLocalStorageIfNeeded() {
+  const ls_tasks     = JSON.parse(localStorage.getItem(STORAGE_KEY)           || '{}');
+  const ls_goals     = JSON.parse(localStorage.getItem(GOALS_STORAGE_KEY)     || '[]');
+  const ls_workhard  = JSON.parse(localStorage.getItem(WORKHARD_STORAGE_KEY)  || '{}');
+  const ls_memos     = JSON.parse(localStorage.getItem(MEMO_STORAGE_KEY)      || '{}');
+  const ls_goalMemos = JSON.parse(localStorage.getItem(GOAL_MEMO_STORAGE_KEY) || '{}');
+
+  const has_local_data =
+    Object.keys(ls_tasks).length > 0 ||
+    ls_goals.length > 0 ||
+    Object.keys(ls_workhard).length > 0;
+
+  if (!has_local_data) return;
+
+  try {
+    await fetch(`${API_BASE}/migrate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tasks: ls_tasks, goals: ls_goals,
+        workhard: ls_workhard, memos: ls_memos, goal_memos: ls_goalMemos,
+      }),
+    });
+    showInfoToast('✓ 已将本地历史数据迁移至后端，数据安全有保障！');
+  } catch (e) {
+    console.warn('[daily_plan] localStorage 迁移失败:', e);
+  }
+}
+
+async function loadFromBackend() {
+  try {
+    const res = await fetch(`${API_BASE}/data`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    cache.tasks     = data.tasks      || {};
+    cache.workhard  = data.workhard   || {};
+    cache.memos     = data.memos      || {};
+    cache.goalMemos = data.goal_memos || {};
+    cache.goals     = data.goals      || [];
+
+    // 后端无数据时，自动将 localStorage 历史数据迁移过去
+    if (_isBackendEmpty(data)) {
+      await _migrateLocalStorageIfNeeded();
+      // 迁移后重新加载
+      const res2 = await fetch(`${API_BASE}/data`);
+      if (res2.ok) {
+        const data2 = await res2.json();
+        cache.tasks     = data2.tasks      || {};
+        cache.workhard  = data2.workhard   || {};
+        cache.memos     = data2.memos      || {};
+        cache.goalMemos = data2.goal_memos || {};
+        cache.goals     = data2.goals      || [];
+      }
+    }
+  } catch (e) {
+    console.warn('[daily_plan] 后端不可用，回退到 localStorage:', e);
+    showStorageError('⚠ 后端服务未运行，数据暂存本地。启动后端后刷新页面可同步。');
+    cache.tasks     = JSON.parse(localStorage.getItem(STORAGE_KEY)           || '{}');
+    cache.workhard  = JSON.parse(localStorage.getItem(WORKHARD_STORAGE_KEY)  || '{}');
+    cache.memos     = JSON.parse(localStorage.getItem(MEMO_STORAGE_KEY)      || '{}');
+    cache.goalMemos = JSON.parse(localStorage.getItem(GOAL_MEMO_STORAGE_KEY) || '{}');
+    cache.goals     = JSON.parse(localStorage.getItem(GOALS_STORAGE_KEY)     || '[]');
+  }
+}
+
+async function init() {
+  await loadFromBackend();
   document.getElementById('date-display').textContent = formatDateDisplay(state.dateKey);
   state.tasks = loadTasks(state.dateKey);
   renderTasks();
@@ -1832,6 +2515,7 @@ function init() {
   initMemo();
   initCalendar();
   initTimer();
+  initSubtaskPanel();
   initKeyboardShortcuts();
 }
 

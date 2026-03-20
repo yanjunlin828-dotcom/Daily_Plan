@@ -40,12 +40,12 @@
         <button id="goal-add-btn" class="goals-add-btn">+</button>
       </div>
 
-      <!-- 条目列表 -->
-      <ul id="goals-list" class="goals-list"></ul>
-
-      <!-- 空状态 -->
-      <div id="goals-empty" class="goals-empty-state hidden">
-        <p>暂无长期目标，输入上方添加</p>
+      <!-- 条目列表（可滚动区域） -->
+      <div class="goals-scroll-area">
+        <ul id="goals-list" class="goals-list"></ul>
+        <div id="goals-empty" class="goals-empty-state hidden">
+          <p>暂无长期目标，输入上方添加</p>
+        </div>
       </div>
     </aside>
 
@@ -118,19 +118,22 @@
 
         <div id="tag-filter-bar" class="tag-filter-bar hidden"></div>
 
-        <ul id="task-list" class="task-list"></ul>
+        <!-- 任务列表（可滚动区域） -->
+        <div class="task-scroll-area">
+          <ul id="task-list" class="task-list"></ul>
 
-        <div id="empty-state" class="empty-state">
-          <span class="empty-icon">_</span>
-          <p>今日暂无任务，输入上方添加</p>
-        </div>
+          <div id="empty-state" class="empty-state">
+            <span class="empty-icon">_</span>
+            <p>今日暂无任务，输入上方添加</p>
+          </div>
 
-        <div id="all-done-banner" class="all-done-banner hidden">
-          全部完成！今天做得很好。
-        </div>
+          <div id="all-done-banner" class="all-done-banner hidden">
+            全部完成！今天做得很好。
+          </div>
 
-        <div id="carry-done-banner" class="carry-done-banner hidden">
-          ↪ 已将 <span id="carry-done-count">0</span> 个任务延续到明天
+          <div id="carry-done-banner" class="carry-done-banner hidden">
+            ↪ 已将 <span id="carry-done-count">0</span> 个任务延续到明天
+          </div>
         </div>
 
         <nav class="nav-section">
@@ -211,6 +214,11 @@
         <span id="memo-char-count" class="memo-char-count">0 字</span>
       </div>
     </div>
+  </div>
+
+  <!-- 子任务面板（与备忘录弹窗结构相同：遮罩包裹面板） -->
+  <div id="subtask-overlay" class="subtask-overlay hidden" aria-hidden="true">
+    <div id="subtask-panel" class="subtask-panel" role="dialog" aria-modal="true"></div>
   </div>
 
   <script src="app.js"></script>

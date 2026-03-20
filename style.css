@@ -32,7 +32,8 @@ body {
   background-color: #0f0f0f;
   color: #e0e0e0;
   font-family: 'JetBrains Mono', 'Courier New', 'Consolas', monospace;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -42,6 +43,9 @@ body {
 .container {
   width: 100%;
   max-width: 640px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 头部 */
@@ -153,6 +157,18 @@ body {
   color: #0f0f0f;
   border-color: var(--accent);
 }
+
+/* 任务滚动区域 */
+.task-scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.task-scroll-area::-webkit-scrollbar { width: 4px; }
+.task-scroll-area::-webkit-scrollbar-track { background: transparent; }
+.task-scroll-area::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+.task-scroll-area::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
 
 /* 任务列表 */
 .task-list {
@@ -446,20 +462,27 @@ body {
 .app-layout {
   display: flex;
   gap: var(--panel-gap);
-  align-items: flex-start;
+  align-items: stretch;
   width: 100%;
+  height: 100%;
   max-width: calc(var(--panel-goals-width) + var(--panel-gap) + var(--panel-daily-max));
 }
 
 .panel-goals {
   width: var(--panel-goals-width);
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .panel-daily {
   flex: 1;
   min-width: 0;
   max-width: var(--panel-daily-max);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* ── 左栏面板标题 ────────────────────────────────────────── */
@@ -568,6 +591,17 @@ body {
 }
 
 /* ── 条目列表基础样式 ────────────────────────────────────── */
+
+.goals-scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.goals-scroll-area::-webkit-scrollbar { width: 4px; }
+.goals-scroll-area::-webkit-scrollbar-track { background: transparent; }
+.goals-scroll-area::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+.goals-scroll-area::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
 
 .goals-list {
   list-style: none;
@@ -705,10 +739,16 @@ body {
 /* ── 响应式：小屏折叠左栏 ────────────────────────────────── */
 
 @media (max-width: 900px) {
+  body {
+    padding: 24px 16px;
+  }
+
   .app-layout {
     flex-direction: column;
     max-width: 640px;
     gap: 0;
+    align-items: stretch;
+    height: 100%;
   }
 
   .panel-goals {
@@ -716,14 +756,14 @@ body {
     padding-top: 0;
     padding-bottom: 0;
     max-height: 52px;
-    overflow: hidden;
+    flex-shrink: 0;
     transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     border-bottom: 1px solid #1a1a1a;
     margin-bottom: 16px;
   }
 
   .panel-goals.expanded {
-    max-height: 600px;
+    max-height: 340px;
     padding-bottom: 16px;
   }
 
@@ -746,6 +786,8 @@ body {
 
   .panel-daily {
     max-width: 100%;
+    flex: 1;
+    min-height: 0;
   }
 }
 
@@ -2094,5 +2136,436 @@ body {
   box-shadow: 0 0 5px #c8850a44;
   flex-shrink: 0;
   margin-left: 6px;
+}
+
+/* ── 子任务功能 ───────────────────────────────────────────── */
+
+/* 任务文字块：包裹 task-text 和内嵌进度条 */
+.task-text-block {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* 在 task-text-block 内部的 flex 行为重置 */
+.task-text-block .task-text {
+  flex: none;
+}
+
+.task-text-block .task-edit-input {
+  flex: none;
+  width: 100%;
+}
+
+/* 主任务条目内嵌子任务进度条 */
+.subtask-inline-progress {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.subtask-inline-bar {
+  width: 100px;
+  height: 3px;
+  background: #2a2a2a;
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.subtask-inline-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s;
+}
+
+.subtask-inline-fill.all-done {
+  background: var(--accent) !important;
+}
+
+.subtask-inline-count {
+  font-size: 11px;
+  color: #666;
+  white-space: nowrap;
+  transition: color 0.3s;
+  user-select: none;
+}
+
+.subtask-inline-count.all-done {
+  color: var(--accent);
+}
+
+.subtask-inline-progress:hover .subtask-inline-count {
+  color: #aaa;
+}
+
+/* 长按脉冲动画 */
+@keyframes long-press-pulse {
+  0%   { box-shadow: inset 0 0 0 0 rgba(0,255,136,0), 0 0 0 0 rgba(0,255,136,0.45); }
+  50%  { box-shadow: inset 0 0 0 0 rgba(0,255,136,0), 0 0 0 10px rgba(0,255,136,0); }
+  100% { box-shadow: inset 0 0 0 0 rgba(0,255,136,0), 0 0 0 0 rgba(0,255,136,0); }
+}
+
+.task-item.pressing {
+  border-color: var(--accent-dim) !important;
+  background-color: var(--accent-faint) !important;
+  animation: long-press-pulse 0.6s ease-out;
+}
+
+/* 子任务面板遮罩（与 memo-overlay 结构相同） */
+.subtask-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: overlayIn 0.22s ease forwards;
+}
+
+.subtask-overlay.closing {
+  animation: overlayOut 0.2s ease forwards;
+}
+
+.subtask-overlay.hidden {
+  display: none;
+}
+
+/* 子任务浮动面板 */
+@keyframes subtask-panel-in {
+  from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes subtask-panel-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-12px) scale(0.96); }
+}
+
+.subtask-panel {
+  background: #1a1a1a;
+  border: 1px solid var(--accent-dim);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0,255,136,0.12), 0 2px 16px rgba(0,0,0,0.65);
+  width: 100%;
+  max-width: 480px;
+  max-height: 70vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: subtask-panel-in 0.25s cubic-bezier(0.34, 1.36, 0.64, 1) forwards;
+}
+
+.subtask-overlay.closing .subtask-panel {
+  animation: subtask-panel-out 0.2s ease forwards;
+}
+
+/* 面板头部 */
+.subtask-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid #252525;
+  flex-shrink: 0;
+}
+
+.subtask-panel-prompt {
+  color: var(--accent);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.subtask-panel-header-title {
+  flex: 1;
+  font-size: 13px;
+  color: #bbb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtask-panel-close {
+  background: transparent;
+  border: none;
+  color: #555;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  font-family: inherit;
+  flex-shrink: 0;
+  transition: color 0.2s;
+}
+
+.subtask-panel-close:hover {
+  color: var(--danger);
+}
+
+/* 面板进度区域 */
+.subtask-panel-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #1f1f1f;
+  flex-shrink: 0;
+}
+
+.subtask-panel-progress-bar {
+  flex: 1;
+  height: 4px;
+  background: #2a2a2a;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.subtask-panel-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 2px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s;
+}
+
+.subtask-panel-progress-count {
+  font-size: 12px;
+  color: #666;
+  white-space: nowrap;
+  transition: color 0.3s;
+  min-width: 72px;
+  text-align: right;
+}
+
+.subtask-panel-progress-count.all-done {
+  color: var(--accent);
+}
+
+/* 子任务列表（可滚动） */
+.subtask-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 4px 0;
+}
+
+.subtask-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.subtask-list::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 2px;
+}
+
+/* 子任务条目 */
+.subtask-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #1e1e1e;
+  transition: background 0.15s;
+  cursor: pointer;
+  user-select: none;
+}
+
+.subtask-item:last-child {
+  border-bottom: none;
+}
+
+.subtask-item:hover {
+  background: #202020;
+}
+
+.subtask-item:hover .subtask-delete-btn {
+  opacity: 1;
+}
+
+.subtask-checkbox {
+  font-size: 13px;
+  color: #666;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  transition: color 0.2s;
+  font-family: inherit;
+}
+
+.subtask-item.done .subtask-checkbox {
+  color: var(--accent);
+}
+
+.subtask-text {
+  flex: 1;
+  font-size: 14px;
+  color: #ccc;
+  transition: color 0.2s, text-decoration 0.2s;
+  word-break: break-word;
+  line-height: 1.45;
+}
+
+.subtask-item.done .subtask-text {
+  text-decoration: line-through;
+  color: #4a4a4a;
+}
+
+.subtask-delete-btn {
+  background: transparent;
+  border: none;
+  color: #555;
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0 4px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: color 0.2s, opacity 0.2s;
+  font-family: inherit;
+}
+
+.subtask-delete-btn:hover {
+  color: var(--danger);
+}
+
+/* 子任务内联编辑输入框 */
+.subtask-edit-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--accent);
+  outline: none;
+  color: #e0e0e0;
+  font-family: inherit;
+  font-size: 14px;
+  caret-color: var(--accent);
+  padding: 2px 0;
+}
+
+/* 添加子任务区域 */
+.subtask-add-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid #1f1f1f;
+  flex-shrink: 0;
+}
+
+.subtask-add-prompt {
+  color: var(--accent);
+  font-size: 16px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.subtask-add-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #333;
+  outline: none;
+  color: #e0e0e0;
+  font-family: inherit;
+  font-size: 14px;
+  caret-color: var(--accent);
+  padding: 4px 0;
+  transition: border-color 0.2s;
+}
+
+.subtask-add-input:focus {
+  border-color: var(--accent-dim);
+}
+
+.subtask-add-input::placeholder {
+  color: #444;
+}
+
+/* 输入为空时抖动提示 */
+@keyframes subtask-shake {
+  0%, 100% { transform: translateX(0); }
+  25%       { transform: translateX(-5px); }
+  75%       { transform: translateX(5px); }
+}
+
+.subtask-add-input.shake {
+  animation: subtask-shake 0.25s ease;
+  border-color: var(--danger) !important;
+}
+
+/* 自动完成 Toast */
+.subtask-toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e1e1e;
+  border: 1px solid var(--accent-dim);
+  border-radius: 8px;
+  padding: 12px 18px;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.75);
+  animation: fadeIn 0.2s ease;
+  max-width: min(520px, 90vw);
+}
+
+.subtask-toast-text {
+  font-size: 13px;
+  color: #ccc;
+  flex: 1;
+}
+
+.subtask-toast-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.subtask-toast-yes,
+.subtask-toast-no {
+  background: transparent;
+  border: 1px solid #333;
+  color: #aaa;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.subtask-toast-yes {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+.subtask-toast-yes:hover {
+  background: var(--accent-bg-hover);
+}
+
+.subtask-toast-no:hover {
+  background: #252525;
+  color: #ccc;
+}
+
+/* 子任务全完成迷你粒子 */
+.subtask-complete-particle {
+  position: fixed;
+  pointer-events: none;
+  font-size: 10px;
+  color: var(--accent);
+  z-index: 9999;
+  animation: subtask-particle-fly 0.65s ease-out forwards;
+}
+
+@keyframes subtask-particle-fly {
+  0%   { opacity: 1; transform: translate(0, 0) scale(1.2); }
+  100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(0); }
 }
 
