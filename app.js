@@ -40,9 +40,49 @@ function formatDateDisplay(dateKey) {
   return `${dateKey}  ${WEEK_DAYS[d.getDay()]}`;
 }
 
+// ── 同步状态管理 ──────────────────────────────────────────
+// 追踪所有 apiPut / apiDelete 请求的飞行状态，驱动呼吸灯
+
+let syncPending  = 0;     // 当前在途请求数量
+let syncHasError = false; // 当前批次是否出现过失败
+
+function updateSyncDot() {
+  const dot = document.getElementById('sync-dot');
+  if (!dot) return;
+  if (syncPending > 0) {
+    dot.className = 'sync-dot sync-dot--saving';
+    dot.title = '保存中...';
+  } else if (syncHasError) {
+    dot.className = 'sync-dot sync-dot--error';
+    dot.title = '保存失败，数据仅存本地';
+  } else {
+    dot.className = 'sync-dot sync-dot--saved';
+    dot.title = '已同步到数据库';
+  }
+}
+
+function syncBegin() {
+  // 新批次启动（从空闲状态）时重置错误标记，给新的请求干净的开始
+  if (syncPending === 0) syncHasError = false;
+  syncPending++;
+  updateSyncDot();
+}
+
+function syncSuccess() {
+  syncPending = Math.max(0, syncPending - 1);
+  updateSyncDot();
+}
+
+function syncFail() {
+  syncPending = Math.max(0, syncPending - 1);
+  syncHasError = true;
+  updateSyncDot();
+}
+
 // ── API 辅助函数 ───────────────────────────────────────────
 
 async function apiPut(path, body) {
+  syncBegin();
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       method: 'PUT',
@@ -50,8 +90,10 @@ async function apiPut(path, body) {
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    syncSuccess();
   } catch (e) {
     console.error(`[daily_plan] 保存失败 (${path}):`, e);
+    syncFail();
     showStorageError();
     // API 写入失败时，将当前缓存全量写入 localStorage 兜底
     try {
@@ -65,11 +107,15 @@ async function apiPut(path, body) {
 }
 
 async function apiDelete(path) {
+  syncBegin();
   try {
     const res = await fetch(`${API_BASE}${path}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    syncSuccess();
   } catch (e) {
     console.error(`[daily_plan] 删除失败 (${path}):`, e);
+    syncFail();
+    showStorageError();
   }
 }
 
@@ -89,8 +135,7 @@ function showInfoToast(msg) {
   if (document.getElementById('storage-info-toast')) return;
   const toast = document.createElement('div');
   toast.id = 'storage-info-toast';
-  toast.className = 'storage-error-toast';
-  toast.style.cssText = 'background:#1a4731;border-color:#00ff88;color:#00ff88;';
+  toast.className = 'storage-info-toast';
   toast.textContent = msg;
   document.body.appendChild(toast);
   setTimeout(() => { if (toast.isConnected) toast.remove(); }, 5000);
@@ -2411,7 +2456,7 @@ async function _migrateLocalStorageIfNeeded() {
   if (!has_local_data) return;
 
   try {
-    await fetch(`${API_BASE}/migrate`, {
+    const res = await fetch(`${API_BASE}/migrate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2419,6 +2464,10 @@ async function _migrateLocalStorageIfNeeded() {
         workhard: ls_workhard, memos: ls_memos, goal_memos: ls_goalMemos,
       }),
     });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // 迁移成功后清除 localStorage，防止 DB 重置时重复迁移旧数据
+    [STORAGE_KEY, GOALS_STORAGE_KEY, WORKHARD_STORAGE_KEY, MEMO_STORAGE_KEY, GOAL_MEMO_STORAGE_KEY]
+      .forEach(key => localStorage.removeItem(key));
     showInfoToast('✓ 已将本地历史数据迁移至后端，数据安全有保障！');
   } catch (e) {
     console.warn('[daily_plan] localStorage 迁移失败:', e);
@@ -2451,6 +2500,9 @@ async function loadFromBackend() {
         cache.goals     = data2.goals      || [];
       }
     }
+    // 后端连接成功，初始同步状态置为绿色
+    syncHasError = false;
+    updateSyncDot();
   } catch (e) {
     console.warn('[daily_plan] 后端不可用，回退到 localStorage:', e);
     showStorageError('⚠ 后端服务未运行，数据暂存本地。启动后端后刷新页面可同步。');
@@ -2459,6 +2511,9 @@ async function loadFromBackend() {
     cache.memos     = JSON.parse(localStorage.getItem(MEMO_STORAGE_KEY)      || '{}');
     cache.goalMemos = JSON.parse(localStorage.getItem(GOAL_MEMO_STORAGE_KEY) || '{}');
     cache.goals     = JSON.parse(localStorage.getItem(GOALS_STORAGE_KEY)     || '[]');
+    // 后端不可用，持续显示红色，提醒用户数据未入库
+    syncHasError = true;
+    updateSyncDot();
   }
 }
 
