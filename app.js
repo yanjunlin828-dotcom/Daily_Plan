@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'daily_plan_data';
+﻿const STORAGE_KEY = 'daily_plan_data';
 const GOALS_STORAGE_KEY = 'daily_plan_goals';
 const WEEK_DAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 const PRIORITY_LABELS = { high: '高', medium: '中', low: '低' };
@@ -149,7 +149,7 @@ function loadAllData() {
 
 // 向下兼容：为旧任务补充新字段
 function migrateTask(task) {
-  return { priority: 'medium', tags: [], delay_days: 0, original_date: null, subtasks: [], ...task };
+  return { priority: 'medium', tags: [], delay_days: 0, original_date: null, subtasks: [], startTime: null, endTime: null, ...task };
 }
 
 function loadTasks(dateKey) {
@@ -221,6 +221,302 @@ function buildPriorityBtn(item, onChange) {
   return btn;
 }
 
+// ── 任务时间功能 ──────────────────────────────────────────
+
+function timeToMins(timeStr) {
+  const [h, m] = timeStr.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function taskSortKey(task) {
+  if (!task.startTime) return Infinity;
+  return timeToMins(task.startTime);
+}
+
+// 获取已排序的有时间任务列表中，位于 afterMins 之后的第一个开始时间（分钟数）
+function getNextTaskStart(timedTasks, afterMins) {
+  const next = timedTasks.find(t => timeToMins(t.startTime) > afterMins);
+  return next ? timeToMins(next.startTime) : null;
+}
+
+function getCurrentTaskId(tasks, now) {
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  const timedTasks = tasks
+    .filter(t => t.startTime && !t.done)
+    .sort((a, b) => timeToMins(a.startTime) - timeToMins(b.startTime));
+
+  for (let i = 0; i < timedTasks.length; i++) {
+    const task = timedTasks[i];
+    const start = timeToMins(task.startTime);
+    const end = task.endTime
+      ? timeToMins(task.endTime)
+      : (timedTasks[i + 1] ? timeToMins(timedTasks[i + 1].startTime) : start + 60);
+    if (nowMins >= start && nowMins < end) return task.id;
+  }
+  return null;
+}
+
+function refreshTimeHighlight() {
+  const todayKey = getTodayKey();
+  const els = document.querySelectorAll('.task-item');
+  if (state.dateKey !== todayKey) {
+    els.forEach(el => el.classList.remove('task-time-active'));
+    return;
+  }
+  const activeId = getCurrentTaskId(state.tasks, new Date());
+  els.forEach(el => {
+    el.classList.toggle('task-time-active', el.dataset.taskId === activeId);
+  });
+}
+
+// 保存任务时间，不触发 renderTasks（面板内编辑时调用）
+function saveTaskTimeSilent(id, startTime, endTime) {
+  state.tasks = state.tasks.map(t =>
+    t.id === id ? { ...t, startTime, endTime } : t
+  );
+  saveTasks(state.dateKey, state.tasks);
+}
+
+// ── 时间拨盘组件 ─────────────────────────────────────────────
+function buildTimeDrum(max, initVal, onChange) {
+  const ITEM_H = 34;
+  const total = max + 1;
+  let val = ((initVal ?? 0) % total + total) % total;
+
+  const el = document.createElement('div');
+  el.className = 'time-drum';
+
+  const track = document.createElement('div');
+  track.className = 'drum-track';
+  el.appendChild(track);
+
+  const band = document.createElement('div');
+  band.className = 'drum-band';
+  el.appendChild(band);
+
+  ['top', 'bottom'].forEach(side => {
+    const fade = document.createElement('div');
+    fade.className = `drum-fade drum-fade--${side}`;
+    el.appendChild(fade);
+  });
+
+  function render(dir) {
+    track.innerHTML = '';
+    for (let i = -1; i <= 1; i++) {
+      const v = ((val + i) % total + total) % total;
+      const item = document.createElement('div');
+      item.className = 'drum-item';
+      if (i === 0) item.classList.add('drum-item--sel');
+      else item.classList.add('drum-item--near');
+      item.textContent = String(v).padStart(2, '0');
+      track.appendChild(item);
+    }
+    if (dir) {
+      track.style.transition = 'none';
+      track.style.transform = `translateY(${dir * ITEM_H}px)`;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        track.style.transition = 'transform 0.12s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+        track.style.transform = 'translateY(0)';
+      }));
+    }
+  }
+
+  function navigate(delta) {
+    val = ((val + delta) % total + total) % total;
+    render(delta);
+    onChange(val);
+  }
+
+  render(0);
+
+  el.addEventListener('wheel', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigate(e.deltaY > 0 ? 1 : -1);
+  }, { passive: false });
+
+  el.addEventListener('click', e => {
+    e.stopPropagation();
+    const rect = el.getBoundingClientRect();
+    navigate(e.clientY < rect.top + rect.height / 2 ? -1 : 1);
+  });
+
+  function setValue(newVal) {
+    newVal = ((newVal % total) + total) % total;
+    if (newVal === val) return;
+    const rawDelta = (newVal - val + total) % total;
+    const dir = rawDelta <= total / 2 ? 1 : -1;
+    val = newVal;
+    render(dir);
+  }
+
+  return { el, getValue: () => val, setValue };
+}
+
+// ── 时间拨盘浮层 ──────────────────────────────────────────────
+function openTimePickerPopover(anchor, task, onSave) {
+  const existing = document.getElementById('time-picker-popover');
+  if (existing) existing.remove();
+
+  const [sh, sm] = task.startTime ? task.startTime.split(':').map(Number) : [9, 0];
+  const [eh, em] = task.endTime
+    ? task.endTime.split(':').map(Number)
+    : [Math.min(sh + 1, 23), sm];
+
+  const pop = document.createElement('div');
+  pop.id = 'time-picker-popover';
+  pop.className = 'time-picker-popover';
+  pop.addEventListener('click', e => e.stopPropagation());
+  pop.addEventListener('mousedown', e => e.stopPropagation());
+
+  const header = document.createElement('div');
+  header.className = 'tp-header';
+  const promptEl = document.createElement('span');
+  promptEl.className = 'tp-prompt';
+  promptEl.textContent = '>';
+  const titleEl = document.createElement('span');
+  titleEl.className = 'tp-title';
+  titleEl.textContent = '// task time';
+  header.appendChild(promptEl);
+  header.appendChild(titleEl);
+  pop.appendChild(header);
+
+  const div1 = document.createElement('div');
+  div1.className = 'tp-divider';
+  pop.appendChild(div1);
+
+  const body = document.createElement('div');
+  body.className = 'tp-body';
+
+  function makeDrumGroup(label, hVal, mVal) {
+    const group = document.createElement('div');
+    group.className = 'tp-group';
+    const pair = document.createElement('div');
+    pair.className = 'tp-pair';
+    const hCb = { fn: () => {} };
+    const mCb = { fn: () => {} };
+    const hDrum = buildTimeDrum(23, hVal, v => hCb.fn(v));
+    const colon = document.createElement('div');
+    colon.className = 'tp-colon';
+    colon.textContent = ':';
+    const mDrum = buildTimeDrum(59, mVal, v => mCb.fn(v));
+    pair.appendChild(hDrum.el);
+    pair.appendChild(colon);
+    pair.appendChild(mDrum.el);
+    group.appendChild(pair);
+    return { el: group, hDrum, mDrum, hCb, mCb };
+  }
+
+  const startGrp = makeDrumGroup('start', sh, sm);
+  const arrowEl = document.createElement('div');
+  arrowEl.className = 'tp-arrow';
+  arrowEl.textContent = '→';
+  const endGrp = makeDrumGroup('end', eh, em);
+
+  function autoCorrectEnd() {
+    const startMins = startGrp.hDrum.getValue() * 60 + startGrp.mDrum.getValue();
+    const endMins   = endGrp.hDrum.getValue()   * 60 + endGrp.mDrum.getValue();
+    if (endMins <= startMins) {
+      endGrp.hDrum.setValue(startGrp.hDrum.getValue());
+      endGrp.mDrum.setValue(startGrp.mDrum.getValue());
+    }
+  }
+  startGrp.hCb.fn = autoCorrectEnd;
+  startGrp.mCb.fn = autoCorrectEnd;
+
+  body.appendChild(startGrp.el);
+  body.appendChild(arrowEl);
+  body.appendChild(endGrp.el);
+  pop.appendChild(body);
+
+  const div2 = document.createElement('div');
+  div2.className = 'tp-divider';
+  pop.appendChild(div2);
+
+  const footer = document.createElement('div');
+  footer.className = 'tp-footer';
+
+  const clearBtn = document.createElement('button');
+  clearBtn.className = 'tp-btn tp-btn--clear';
+  clearBtn.textContent = '× 清除';
+  clearBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    pop.remove();
+    onSave(null, null);
+  });
+
+  const confirmBtn = document.createElement('button');
+  confirmBtn.className = 'tp-btn tp-btn--confirm';
+  confirmBtn.textContent = '✓ 确认';
+  confirmBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    const startTime = `${String(startGrp.hDrum.getValue()).padStart(2, '0')}:${String(startGrp.mDrum.getValue()).padStart(2, '0')}`;
+    const endTime   = `${String(endGrp.hDrum.getValue()).padStart(2, '0')}:${String(endGrp.mDrum.getValue()).padStart(2, '0')}`;
+    pop.remove();
+    onSave(startTime, endTime);
+  });
+
+  footer.appendChild(clearBtn);
+  footer.appendChild(confirmBtn);
+  pop.appendChild(footer);
+
+  document.body.appendChild(pop);
+
+  const rect = anchor.getBoundingClientRect();
+  const PW = 278, PH = 300;
+  let top  = rect.bottom + 6;
+  let left = rect.left - PW / 2 + rect.width / 2;
+  if (left + PW > window.innerWidth - 8) left = window.innerWidth - PW - 8;
+  if (left < 8) left = 8;
+  if (top + PH > window.innerHeight - 8) top = rect.top - PH - 6;
+  pop.style.left = `${left}px`;
+  pop.style.top  = `${top}px`;
+
+  const onOutside = e => {
+    if (!pop.isConnected) { document.removeEventListener('pointerdown', onOutside); return; }
+    if (!pop.contains(e.target) && e.target !== anchor) {
+      pop.remove();
+      document.removeEventListener('pointerdown', onOutside);
+    }
+  };
+  setTimeout(() => document.addEventListener('pointerdown', onOutside), 0);
+}
+
+function buildTimeBtn(task) {
+  const wrapper = document.createElement('span');
+  wrapper.className = 'time-btn-wrapper';
+
+  const btn = document.createElement('button');
+
+  function refreshBtnDisplay() {
+    const t = state.tasks.find(x => x.id === task.id);
+    if (t && t.startTime) {
+      btn.className = 'time-toggle-btn time-toggle-btn--active';
+      btn.textContent = t.startTime + (t.endTime ? '–' + t.endTime : '–');
+      btn.title = '点击编辑时间';
+    } else {
+      btn.className = 'time-toggle-btn';
+      btn.textContent = '⏱';
+      btn.title = '设置任务时间';
+    }
+  }
+
+  refreshBtnDisplay();
+  wrapper.appendChild(btn);
+
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const cur = state.tasks.find(x => x.id === task.id) || task;
+    openTimePickerPopover(btn, cur, (startTime, endTime) => {
+      saveTaskTimeSilent(task.id, startTime, endTime);
+      refreshBtnDisplay();
+      refreshTimeHighlight();
+    });
+  });
+
+  return wrapper;
+}
+
 // ── 标签过滤 ──────────────────────────────────────────────
 
 function setActiveTag(tag) {
@@ -272,7 +568,7 @@ function addTask(rawText) {
   const { cleanText, tags } = parseTagsFromText(rawText);
   if (!cleanText) return;
 
-  state.tasks = [...state.tasks, { id: generateId(), text: cleanText, done: false, createdAt: Date.now(), priority: 'medium', tags, delay_days: 0, original_date: state.dateKey }];
+  state.tasks = [...state.tasks, { id: generateId(), text: cleanText, done: false, createdAt: Date.now(), priority: 'medium', tags, delay_days: 0, original_date: state.dateKey, startTime: null, endTime: null }];
   saveTasks(state.dateKey, state.tasks);
   renderTasks();
 }
@@ -364,10 +660,12 @@ function renderTasks() {
   const allDone = total > 0 && doneCount === total;
   allDoneBanner.classList.toggle('hidden', !allDone);
 
-  // 列表渲染用过滤后的任务，按优先级排序（完成项置底）
+  // 列表渲染用过滤后的任务，按时间排序（完成项置底，有时间的任务按开始时间升序，无时间任务按创建时间排末尾）
   const visibleTasks = [...getVisibleTasks()].sort((a, b) => {
     if (a.done !== b.done) return a.done ? 1 : -1;
-    return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+    const ak = taskSortKey(a), bk = taskSortKey(b);
+    if (ak !== bk) return ak - bk;
+    return a.createdAt - b.createdAt;
   });
   list.innerHTML = '';
   visibleTasks.forEach(task => {
@@ -402,7 +700,7 @@ function renderTasks() {
 
     const tagChips = buildTagChips(task);
     const delayBadge = (!task.done && task.delay_days > 0) ? buildDelayBadge(task) : null;
-    const priorityBtn = buildPriorityBtn(task, p => setPriority(task.id, p));
+    const timeBtn = buildTimeBtn(task);
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'delete-btn';
@@ -419,7 +717,7 @@ function renderTasks() {
 
     li.addEventListener('click', e => {
       if (e.target.closest('.delete-btn')) return;
-      if (e.target.closest('.priority-btn')) return;
+      if (e.target.closest('.time-btn-wrapper')) return;
       if (e.target.closest('.tag-chip')) return;
       if (e.target.closest('.delay-badge')) return;
       if (e.target.closest('.subtask-inline-progress')) return;
@@ -437,7 +735,7 @@ function renderTasks() {
     li.appendChild(text_block);
     li.appendChild(tagChips);
     if (delayBadge) li.appendChild(delayBadge);
-    li.appendChild(priorityBtn);
+    li.appendChild(timeBtn);
     li.appendChild(deleteBtn);
     initLongPress(li, task.id);
     list.appendChild(li);
@@ -451,6 +749,7 @@ function renderTasks() {
 
   renderTagFilter();
   updateCarryBtnState();
+  refreshTimeHighlight();
 }
 
 // ── 日期导航 ──────────────────────────────────────────────
@@ -752,28 +1051,175 @@ function calcDaysDiff(dateStr) {
   return Math.round((target - today) / (1000 * 60 * 60 * 24));
 }
 
-function buildDueBadge(dueDate) {
-  if (!dueDate) return null;
+function buildDateChip(item, onDateChange) {
+  const chip = document.createElement('button');
 
-  const days = calcDaysDiff(dueDate);
-  const badge = document.createElement('span');
-  badge.className = 'due-badge';
-
-  if (days < 0) {
-    badge.classList.add('overdue');
-    badge.textContent = '✕ 已过期';
-  } else if (days === 0) {
-    badge.classList.add('due-today');
-    badge.textContent = '⚡ 今天截止';
-  } else if (days <= 7) {
-    badge.classList.add('due-soon');
-    badge.textContent = `⚠ ${days}天后`;
-  } else {
-    badge.classList.add('due-normal');
-    badge.textContent = `◷ ${days}天后`;
+  function refreshChip(dueDate) {
+    chip.className = 'date-chip';
+    if (!dueDate) {
+      chip.classList.add('date-chip--no-date');
+      chip.textContent = '+ date';
+      chip.title = '设置截止日期';
+      return;
+    }
+    const days = calcDaysDiff(dueDate);
+    chip.title = `截止: ${dueDate}`;
+    if (days < 0) {
+      chip.classList.add('date-chip--overdue');
+      chip.textContent = `${dueDate.slice(5)} ✕`;
+    } else if (days === 0) {
+      chip.classList.add('date-chip--today');
+      chip.textContent = '今天';
+    } else if (days === 1) {
+      chip.classList.add('date-chip--soon');
+      chip.textContent = '明天';
+    } else if (days <= 7) {
+      chip.classList.add('date-chip--soon');
+      chip.textContent = `+${days}d`;
+    } else {
+      chip.classList.add('date-chip--normal');
+      chip.textContent = dueDate.slice(5);
+    }
   }
 
-  return badge;
+  refreshChip(item.dueDate);
+
+  chip.addEventListener('click', e => {
+    e.stopPropagation();
+    openDatePickerPopover(chip, item.dueDate, newDate => onDateChange(newDate));
+  });
+
+  return chip;
+}
+
+function openDatePickerPopover(anchor, currentDate, onSelect) {
+  const existing = document.getElementById('date-picker-popover');
+  if (existing) existing.remove();
+
+  const popover = document.createElement('div');
+  popover.id = 'date-picker-popover';
+  popover.className = 'date-picker-popover';
+  popover.addEventListener('click', e => e.stopPropagation());
+
+  let viewYear, viewMonth;
+  if (currentDate) {
+    const [y, m] = currentDate.split('-').map(Number);
+    viewYear = y;
+    viewMonth = m - 1;
+  } else {
+    const today = new Date();
+    viewYear = today.getFullYear();
+    viewMonth = today.getMonth();
+  }
+
+  function closePopover() {
+    popover.remove();
+    document.removeEventListener('pointerdown', onOutsideClick);
+  }
+
+  function selectDate(dateKey) {
+    closePopover();
+    onSelect(dateKey);
+  }
+
+  function buildContent() {
+    popover.innerHTML = '';
+
+    const header = document.createElement('div');
+    header.className = 'date-picker-header';
+
+    const prevBtn = document.createElement('button');
+    prevBtn.className = 'date-picker-nav';
+    prevBtn.textContent = '←';
+    prevBtn.addEventListener('click', () => {
+      viewMonth--;
+      if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+      buildContent();
+    });
+
+    const monthLabel = document.createElement('span');
+    monthLabel.className = 'date-picker-month-label';
+    monthLabel.textContent = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}`;
+
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'date-picker-nav';
+    nextBtn.textContent = '→';
+    nextBtn.addEventListener('click', () => {
+      viewMonth++;
+      if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+      buildContent();
+    });
+
+    header.appendChild(prevBtn);
+    header.appendChild(monthLabel);
+    header.appendChild(nextBtn);
+    popover.appendChild(header);
+
+    const weekdayRow = document.createElement('div');
+    weekdayRow.className = 'date-picker-weekdays';
+    ['日', '一', '二', '三', '四', '五', '六'].forEach(d => {
+      const span = document.createElement('span');
+      span.textContent = d;
+      weekdayRow.appendChild(span);
+    });
+    popover.appendChild(weekdayRow);
+
+    const grid = document.createElement('div');
+    grid.className = 'date-picker-grid';
+
+    const todayKey = getTodayKey();
+    const firstDow = new Date(viewYear, viewMonth, 1).getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+    for (let i = 0; i < firstDow; i++) {
+      const empty = document.createElement('div');
+      empty.className = 'date-picker-day date-picker-day--empty';
+      grid.appendChild(empty);
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dk = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const cell = document.createElement('div');
+      cell.className = 'date-picker-day';
+      cell.textContent = d;
+      if (dk === todayKey) cell.classList.add('date-picker-day--today');
+      if (dk === currentDate) cell.classList.add('date-picker-day--selected');
+      cell.addEventListener('click', () => selectDate(dk));
+      grid.appendChild(cell);
+    }
+
+    popover.appendChild(grid);
+
+    const footer = document.createElement('div');
+    footer.className = 'date-picker-footer';
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'date-picker-clear';
+    clearBtn.textContent = '清除日期';
+    clearBtn.addEventListener('click', () => selectDate(null));
+    footer.appendChild(clearBtn);
+    popover.appendChild(footer);
+  }
+
+  buildContent();
+  document.body.appendChild(popover);
+
+  const rect = anchor.getBoundingClientRect();
+  const POPOVER_W = 224;
+  const POPOVER_H = 272;
+  let left = rect.left;
+  let top = rect.bottom + 6;
+  if (left + POPOVER_W > window.innerWidth - 8) left = window.innerWidth - POPOVER_W - 8;
+  if (top + POPOVER_H > window.innerHeight - 8) top = rect.top - POPOVER_H - 6;
+  if (left < 8) left = 8;
+  if (top < 8) top = 8;
+  popover.style.left = `${Math.round(left)}px`;
+  popover.style.top = `${Math.round(top)}px`;
+
+  function onOutsideClick(e) {
+    if (!popover.isConnected) { document.removeEventListener('pointerdown', onOutsideClick); return; }
+    if (!popover.contains(e.target)) closePopover();
+  }
+  setTimeout(() => document.addEventListener('pointerdown', onOutsideClick), 0);
 }
 
 // ── 长期目标持久化 ────────────────────────────────────────
@@ -910,7 +1356,13 @@ function buildGoalListItem(item) {
   text_el.className = 'goal-text';
   text_el.textContent = item.text;
 
-  const priority_btn = buildPriorityBtn(item, p => setGoalPriority(item.id, p));
+  const date_chip = buildDateChip(item, newDate => {
+    state.goals = state.goals.map(g =>
+      g.id === item.id ? { ...g, dueDate: newDate } : g
+    );
+    saveGoals();
+    renderGoals();
+  });
 
   const delete_btn = document.createElement('button');
   delete_btn.className = 'goal-delete-btn';
@@ -929,18 +1381,10 @@ function buildGoalListItem(item) {
 
   row.appendChild(prefix);
   row.appendChild(text_el);
-  row.appendChild(priority_btn);
+  row.appendChild(date_chip);
   row.appendChild(memo_btn);
   row.appendChild(delete_btn);
   li.appendChild(row);
-
-  if (item.dueDate) {
-    const badge = buildDueBadge(item.dueDate);
-    if (badge) {
-      badge.style.marginLeft = '22px';
-      li.appendChild(badge);
-    }
-  }
 
   let click_timer = null;
 
@@ -959,7 +1403,7 @@ function buildGoalListItem(item) {
   if (is_todo) {
     li.addEventListener('click', e => {
       if (e.target.closest('.goal-delete-btn')) return;
-      if (e.target.closest('.priority-btn')) return;
+      if (e.target.closest('.date-chip')) return;
       if (e.target.closest('.goal-memo-btn')) return;
       clearTimeout(click_timer);
       click_timer = setTimeout(() => toggleGoalItem(item.id), 180);
@@ -1024,7 +1468,14 @@ function getSortedGoals() {
   return filtered.sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     if (a.done !== b.done) return a.done ? 1 : -1;
-    if (a.priority !== b.priority) return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+    // 按截止日期升序；无日期的沉底
+    const aDate = a.dueDate || null;
+    const bDate = b.dueDate || null;
+    if (aDate !== bDate) {
+      if (!aDate) return 1;
+      if (!bDate) return -1;
+      return aDate < bDate ? -1 : 1;
+    }
     return b.createdAt - a.createdAt;
   });
 }
@@ -1151,7 +1602,7 @@ function dropToDaily(goal) {
 
 function initDrag(e, goal) {
   if (e.pointerType === 'mouse' && e.button !== 0) return;
-  if (e.target.closest('.goal-delete-btn, .priority-btn, .goal-pin-btn, .goal-memo-btn, .task-edit-input')) return;
+  if (e.target.closest('.goal-delete-btn, .priority-btn, .goal-pin-btn, .goal-memo-btn, .task-edit-input, .date-chip')) return;
 
   const start_x = e.clientX;
   const start_y = e.clientY;
@@ -1857,7 +2308,7 @@ function buildSubtaskInlineProgress(task) {
   const { done, total } = getSubtaskProgress(task);
   const pct       = Math.round((done / total) * 100);
   const all_done  = done === total;
-  const fill_color = all_done ? 'var(--accent)' : PRIORITY_COLORS[task.priority];
+  const fill_color = 'var(--accent)';
 
   const container = document.createElement('div');
   container.className = 'subtask-inline-progress';
@@ -2122,7 +2573,7 @@ function renderSubtaskPanel(task) {
   const { done, total } = getSubtaskProgress(task);
   const pct       = total === 0 ? 0 : Math.round((done / total) * 100);
   const all_done  = total > 0 && done === total;
-  const fill_color = all_done ? 'var(--accent)' : PRIORITY_COLORS[task.priority];
+  const fill_color = 'var(--accent)';
 
   // 更新进度条和计数
   const fill_el = panel.querySelector('.subtask-panel-progress-fill');
@@ -2286,7 +2737,7 @@ function buildSubtaskPanel(task) {
 
   const fill = document.createElement('div');
   fill.className = 'subtask-panel-progress-fill';
-  fill.style.background = PRIORITY_COLORS[task.priority];
+  fill.style.background = 'var(--accent)';
   bar_wrap.appendChild(fill);
 
   const count_el = document.createElement('span');
@@ -2366,7 +2817,7 @@ function initLongPress(li, taskId) {
     // 仅响应鼠标左键或触摸
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     // 忽略交互元素上的按压，避免干扰现有按钮和标签
-    if (e.target.closest('.delete-btn, .priority-btn, .tag-chip, .delay-badge, .task-checkbox, input')) return;
+    if (e.target.closest('.delete-btn, .priority-btn, .time-btn-wrapper, .tag-chip, .delay-badge, .task-checkbox, input')) return;
 
     // 清除可能残留的旧计时器（多指触摸等异常情况）
     clearTimeout(press_timer);
@@ -2572,6 +3023,9 @@ async function init() {
   initTimer();
   initSubtaskPanel();
   initKeyboardShortcuts();
+
+  // 每分钟刷新一次当前任务高光
+  setInterval(refreshTimeHighlight, 60 * 1000);
 }
 
 function initKeyboardShortcuts() {
