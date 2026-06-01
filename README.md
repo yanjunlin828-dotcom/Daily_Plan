@@ -67,6 +67,8 @@ pip install -r backend/requirements.txt
 
 右键 `backend/start_silent.vbs` → 发送到 → 桌面快捷方式，之后双击桌面图标即可。
 
+如需设置自定义图标：右键桌面快捷方式 → 属性 → 更改图标 → 选择项目根目录下的 `favicon.ico`。
+
 - 首次启动自动创建数据库，无需额外配置
 - 再次双击时，若服务已在运行则直接打开浏览器
 
