@@ -64,14 +64,18 @@
               <div id="timer-panel" class="timer-panel hidden" aria-label="计时器">
                 <div class="timer-panel-header" id="timer-drag-handle">
                   <span class="timer-panel-prompt">&gt;</span>
-                  <span class="timer-panel-title">// timer</span>
+                  <div class="timer-tab-switcher">
+                    <button id="timer-tab-timer" class="timer-tab timer-tab--active" onclick="switchTimerTab('timer')">timer</button>
+                    <span class="timer-tab-sep">·</span>
+                    <button id="timer-tab-log" class="timer-tab" onclick="switchTimerTab('log')">log</button>
+                  </div>
                   <span id="timer-header-time" class="timer-header-time">00:00:00</span>
                   <div class="timer-header-actions">
                     <button id="timer-minimize-btn" class="timer-window-btn" title="最小化">_</button>
                     <button id="timer-close-btn" class="timer-window-btn timer-window-btn--close" title="关闭">×</button>
                   </div>
                 </div>
-                <div class="timer-body">
+                <div id="timer-body" class="timer-body">
                   <div class="timer-ring-container">
                     <svg id="timer-svg" class="timer-svg" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg">
                       <circle class="timer-ring-bg" cx="120" cy="120" r="90"/>
@@ -94,6 +98,16 @@
                     <button id="timer-start-btn" class="timer-start-btn">▶ START</button>
                     <button id="timer-reset-btn" class="timer-reset-btn">↺ RESET</button>
                   </div>
+                </div>
+                <div id="timer-log-body" class="timer-log-body hidden">
+                  <div class="timer-log-date-nav">
+                    <button id="timer-log-prev" class="timer-log-nav-btn">‹</button>
+                    <span id="timer-log-date" class="timer-log-date-label"></span>
+                    <button id="timer-log-next" class="timer-log-nav-btn">›</button>
+                  </div>
+                  <div id="timer-log-summary" class="timer-log-summary"></div>
+                  <div id="timer-heatmap" class="timer-heatmap-wrap"></div>
+                  <div id="timer-session-list" class="timer-session-list"></div>
                 </div>
               </div>
             </div>

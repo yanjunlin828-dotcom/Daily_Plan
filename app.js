@@ -18,6 +18,7 @@ const cache = {
   memos:     {},  // { dateKey: string }
   goalMemos: {},  // { goalId: string }
   goals:     [],  // GoalItem[]
+  sessions:  {},  // { dateKey: Session[] }
 };
 
 // ── 日期工具 ──────────────────────────────────────────────
@@ -159,6 +160,13 @@ function loadTasks(dateKey) {
 function saveTasks(dateKey, tasks) {
   cache.tasks[dateKey] = tasks;
   apiPut(`/tasks/${dateKey}`, tasks);
+}
+
+// ── 学习会话持久化 ────────────────────────────────────────
+
+function saveSessions(dateKey, sessions) {
+  cache.sessions[dateKey] = sessions;
+  apiPut(`/sessions/${dateKey}`, sessions);
 }
 
 // ── WorkHard 持久化 ───────────────────────────────────────
@@ -1879,6 +1887,7 @@ const timerState = {
   intervalId: null,
   startTimestamp: null,  // 运行中：Date.now() - seconds*1000（用于从挂钟还原真实时长）
   prevSecondsInMinute: -1,
+  sessionStartWallTime: null,  // 本次会话开始的真实时刻（Date 对象）
 };
 
 // 缓存刻度 DOM 节点，避免每秒重复查询
@@ -1994,6 +2003,10 @@ function timerUpdateButtonUI() {
 
 function timerStart() {
   if (timerState.running) return;
+  // 首次从零开始时记录会话起始时刻；暂停后继续不重置，保留最初开始时间
+  if (timerState.sessionStartWallTime === null) {
+    timerState.sessionStartWallTime = new Date(Date.now() - timerState.seconds * 1000);
+  }
   // 记录偏移后的起始时间，保留已暂停的累计秒数
   timerState.startTimestamp = Date.now() - timerState.seconds * 1000;
   timerState.running = true;
@@ -2012,9 +2025,18 @@ function timerPause() {
 }
 
 function timerReset() {
+  const elapsed = timerState.seconds;
+  const startWall = timerState.sessionStartWallTime;
+
   timerPause();
+
+  if (elapsed >= 60 && startWall) {
+    recordTimerSession(startWall, new Date(), elapsed);
+  }
+
   timerState.seconds = 0;
   timerState.prevSecondsInMinute = -1;
+  timerState.sessionStartWallTime = null;
 
   // 红色闪烁反馈
   const progressRing = document.getElementById('timer-ring-progress');
@@ -2029,6 +2051,29 @@ function timerReset() {
     timerUpdateDisplay();
     timerUpdateButtonUI();
   }
+}
+
+function recordTimerSession(startDate, endDate, durationSeconds) {
+  const pad2 = n => String(n).padStart(2, '0');
+  const fmtTime = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const dateKey = dateToKey(startDate);
+
+  const session = {
+    id: crypto.randomUUID(),
+    start: fmtTime(startDate),
+    end: fmtTime(endDate),
+    duration: durationSeconds,
+  };
+
+  const existing = cache.sessions[dateKey] || [];
+  saveSessions(dateKey, [...existing, session]);
+
+  const h = Math.floor(durationSeconds / 3600);
+  const m = Math.floor((durationSeconds % 3600) / 60);
+  const label = h > 0 ? `${h}h ${m}m` : `${m}m`;
+  showInfoToast(`· logged ${label}`);
+
+  if (timerLogState.dateKey === dateKey) renderTimerLog();
 }
 
 function timerBuildTicks() {
@@ -2053,6 +2098,162 @@ function timerBuildTicks() {
   }
   // 初始化后缓存刻度节点，避免每秒 querySelectorAll
   timerTickEls = group.querySelectorAll('.timer-tick');
+}
+
+// ── Log 页面 ──────────────────────────────────────────────
+
+const timerLogState = { dateKey: getTodayKey() };
+
+function formatDuration(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function switchTimerTab(tab) {
+  const timerBody = document.getElementById('timer-body');
+  const logBody   = document.getElementById('timer-log-body');
+  const tabTimer  = document.getElementById('timer-tab-timer');
+  const tabLog    = document.getElementById('timer-tab-log');
+
+  if (tab === 'timer') {
+    timerBody.classList.remove('hidden');
+    logBody.classList.add('hidden');
+    tabTimer.classList.add('timer-tab--active');
+    tabLog.classList.remove('timer-tab--active');
+  } else {
+    timerLogState.dateKey = getTodayKey();
+    timerBody.classList.add('hidden');
+    logBody.classList.remove('hidden');
+    tabTimer.classList.remove('timer-tab--active');
+    tabLog.classList.add('timer-tab--active');
+    renderTimerLog();
+  }
+}
+
+function renderTimerLog() {
+  const dateKey  = timerLogState.dateKey;
+  const sessions = (cache.sessions[dateKey] || []).slice().sort((a, b) => a.start.localeCompare(b.start));
+  const todayKey = getTodayKey();
+
+  // 日期标签
+  const dateLabel = document.getElementById('timer-log-date');
+  if (dateLabel) {
+    dateLabel.textContent = dateKey;
+    dateLabel.className = 'timer-log-date-label' + (dateKey === todayKey ? ' is-today' : '');
+  }
+
+  // 汇总行
+  const summaryEl = document.getElementById('timer-log-summary');
+  if (summaryEl) {
+    if (sessions.length === 0) {
+      summaryEl.innerHTML = '';
+    } else {
+      const totalSec = sessions.reduce((acc, s) => acc + s.duration, 0);
+      summaryEl.innerHTML =
+        `${sessions.length} session${sessions.length > 1 ? 's' : ''} &nbsp;·&nbsp; <span class="summary-total">${formatDuration(totalSec)}</span>`;
+    }
+  }
+
+  // 热力图（6h-24h，每格 10 分钟，分两行：6h-15h / 15h-24h）
+  const heatmapEl = document.getElementById('timer-heatmap');
+  if (heatmapEl) {
+    heatmapEl.innerHTML = '';
+    const SLOT_MINUTES = 20;
+    const START_MIN    = 6 * 60;   // 从 6:00 开始
+    const SLOTS        = 54;       // 18h × 3格/h
+
+    const coverage = new Array(SLOTS).fill(0);
+
+    sessions.forEach(s => {
+      const [sh, sm] = s.start.split(':').map(Number);
+      const [eh, em] = s.end.split(':').map(Number);
+      const startMin = sh * 60 + sm;
+      const endMin   = eh * 60 + em;
+      for (let i = 0; i < SLOTS; i++) {
+        const slotStart = START_MIN + i * SLOT_MINUTES;
+        const slotEnd   = slotStart + SLOT_MINUTES;
+        const overlap   = Math.min(slotEnd, endMin) - Math.max(slotStart, startMin);
+        if (overlap > 0) coverage[i] += overlap;
+      }
+    });
+
+    const ROWS = [
+      { label: ['6h', '9h', '12h', '15h'], start: 0,  end: 27 },
+      { label: ['15h','18h','21h','24h'],   start: 27, end: 54 },
+    ];
+
+    ROWS.forEach(row => {
+      const half = document.createElement('div');
+      half.className = 'timer-heatmap-half';
+
+      const axis = document.createElement('div');
+      axis.className = 'timer-heatmap-axis';
+      row.label.forEach(t => {
+        const s = document.createElement('span');
+        s.textContent = t;
+        axis.appendChild(s);
+      });
+
+      const rowEl = document.createElement('div');
+      rowEl.className = 'timer-heatmap-row';
+      for (let i = row.start; i < row.end; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'timer-heatmap-cell';
+        if (coverage[i] >= SLOT_MINUTES * 0.8) cell.classList.add('full');
+        else if (coverage[i] > 0)              cell.classList.add('partial');
+        rowEl.appendChild(cell);
+      }
+
+      half.appendChild(axis);
+      half.appendChild(rowEl);
+      heatmapEl.appendChild(half);
+    });
+  }
+
+  // 会话列表
+  const listEl = document.getElementById('timer-session-list');
+  if (!listEl) return;
+  listEl.innerHTML = '';
+
+  if (sessions.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'timer-session-empty';
+    empty.textContent = 'no sessions';
+    listEl.appendChild(empty);
+    return;
+  }
+
+  sessions.forEach(s => {
+    const item = document.createElement('div');
+    item.className = 'timer-session-item';
+    item.innerHTML = `
+      <span class="timer-session-range">
+        ${s.start}<span class="sep">→</span>${s.end}
+      </span>
+      <span class="timer-session-duration">${formatDuration(s.duration)}</span>
+      <button class="timer-session-del" data-id="${s.id}" title="删除">×</button>
+    `;
+    listEl.appendChild(item);
+  });
+
+  listEl.querySelectorAll('.timer-session-del').forEach(btn => {
+    btn.addEventListener('click', () => deleteTimerSession(dateKey, btn.dataset.id));
+  });
+}
+
+function timerLogNavDate(delta) {
+  const [y, m, d] = timerLogState.dateKey.split('-').map(Number);
+  const next = new Date(y, m - 1, d + delta);
+  timerLogState.dateKey = dateToKey(next);
+  renderTimerLog();
+}
+
+function deleteTimerSession(dateKey, sessionId) {
+  const updated = (cache.sessions[dateKey] || []).filter(s => s.id !== sessionId);
+  saveSessions(dateKey, updated);
+  renderTimerLog();
 }
 
 function openTimerPanel() {
@@ -2124,7 +2325,7 @@ function initTimerDrag() {
   let panel_left = 0, panel_top = 0;
 
   handle.addEventListener('pointerdown', e => {
-    if (e.target.closest('.timer-window-btn')) return;
+    if (e.target.closest('.timer-window-btn') || e.target.closest('.timer-tab')) return;
 
     // panel 始终已是 fixed 定位（由 openTimerPanel 保证），直接开始拖拽
     dragging   = true;
@@ -2176,6 +2377,10 @@ function initTimer() {
   });
 
   document.getElementById('timer-reset-btn').addEventListener('click', timerReset);
+
+  // Log 页日期导航
+  document.getElementById('timer-log-prev').addEventListener('click', () => timerLogNavDate(-1));
+  document.getElementById('timer-log-next').addEventListener('click', () => timerLogNavDate(1));
 
   // 切回前台时立即从挂钟同步，修正后台期间 setInterval 被冻结的误差
   document.addEventListener('visibilitychange', () => {
@@ -2936,6 +3141,7 @@ async function loadFromBackend() {
     cache.memos     = data.memos      || {};
     cache.goalMemos = data.goal_memos || {};
     cache.goals     = data.goals      || [];
+    cache.sessions  = data.sessions   || {};
 
     // 后端无数据时，自动将 localStorage 历史数据迁移过去
     if (_isBackendEmpty(data)) {
@@ -2949,6 +3155,7 @@ async function loadFromBackend() {
         cache.memos     = data2.memos      || {};
         cache.goalMemos = data2.goal_memos || {};
         cache.goals     = data2.goals      || [];
+        cache.sessions  = data2.sessions   || {};
       }
     }
     // 后端连接成功，初始同步状态置为绿色
