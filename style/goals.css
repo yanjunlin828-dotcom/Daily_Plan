@@ -1,0 +1,138 @@
+/* ── Phase 2：Goal 类型特有样式 ──────────────────────────── */
+
+.goal-item.type-goal .goal-prefix { color: var(--accent); }
+.goal-item.type-goal.goal-complete .goal-prefix { color: var(--accent); }
+
+
+/* ── Phase 2：截止日期 badge ─────────────────────────────── */
+
+.due-badge {
+  display: inline-block;
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background-color: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  margin-top: 4px;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.due-badge.due-normal { color: #888; border-color: #2a2a2a; }
+.due-badge.due-soon   { color: var(--warn);   border-color: var(--warn-dim);   animation: duePulse 1.5s ease-in-out infinite; }
+.due-badge.due-today  { color: var(--warn);   border-color: var(--warn-dim);   animation: duePulse 0.8s ease-in-out infinite; }
+.due-badge.overdue    { color: var(--danger); border-color: var(--danger-dim); background-color: var(--danger-bg); }
+
+/* ── Phase 2：动画 keyframes ─────────────────────────────── */
+
+@keyframes duePulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+
+
+@keyframes strikeThrough {
+  from { text-decoration-color: transparent; }
+  to   { text-decoration-color: #555; }
+}
+
+@keyframes goalComplete {
+  0%   { transform: scale(1); background-color: #161616; }
+  40%  { transform: scale(1.025); background-color: var(--accent-bg-task); }
+  100% { transform: scale(1); background-color: #161616; }
+}
+
+/* 仅首次勾选时触发划线 + 背景闪烁动画 */
+.goal-item.just-toggled {
+  animation: goalComplete 0.4s ease;
+}
+.goal-item.just-toggled .goal-text {
+  text-decoration: line-through;
+  animation: strikeThrough 0.25s ease forwards;
+}
+
+/* ── 拖拽复制功能 ─────────────────────────────────────────── */
+
+/* 可拖拽光标 + 禁用触摸默认行为（防止拖拽时触发页面滚动） */
+.goal-item {
+  touch-action: none;
+  cursor: grab;
+}
+
+.goal-item:active {
+  cursor: grabbing;
+}
+
+/* 拖拽进行中：禁止全局文字选中 */
+.dragging-active {
+  user-select: none;
+}
+
+/* 来源事项拖拽中变淡 */
+.goal-item.drag-source {
+  opacity: 0.35;
+  transform: scale(0.97);
+  border-color: var(--accent-dim) !important;
+  transition: opacity 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+
+/* 浮动幽灵卡片（跟随鼠标） */
+.drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.88) rotate(-2deg);
+  opacity: 0;
+  padding: 7px 14px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #0f0f0f;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', 'Courier New', 'Consolas', monospace;
+  box-shadow: 0 8px 28px rgba(0, 255, 136, 0.45), 0 2px 8px rgba(0, 0, 0, 0.5);
+  max-width: 210px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  will-change: left, top;
+}
+
+/* 幽灵入场：弹出 + 轻微旋转 */
+.drag-ghost--visible {
+  opacity: 0.95;
+  transform: translate(-50%, -50%) scale(1.06) rotate(-2deg);
+}
+
+/* 幽灵退场：缩小淡出 */
+.drag-ghost--exit {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.7) rotate(-5deg);
+}
+
+/* 放置区激活（悬停到右侧时）— outline 不可过渡，用 box-shadow 替代实现淡入效果 */
+#task-list.drop-zone--active {
+  box-shadow: 0 0 0 2px var(--accent-dim), inset 0 0 0 9999px rgba(0, 255, 136, 0.03);
+  border-radius: 8px;
+  transition: box-shadow 0.15s ease;
+}
+
+/* 空状态时也给整个区域高亮 */
+#task-list.drop-zone--active ~ #empty-state {
+  border: 1px dashed var(--accent-dim);
+  border-radius: 8px;
+  color: var(--accent);
+  background: rgba(0, 255, 136, 0.03);
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+/* 新任务拖入动画（弹簧效果） */
+@keyframes taskDropIn {
+  0%   { opacity: 0; transform: translateY(-22px) scale(0.92); background-color: rgba(0, 255, 136, 0.2); border-color: var(--accent); }
+  55%  { transform: translateY(4px) scale(1.02); background-color: rgba(0, 255, 136, 0.07); }
+  100% { opacity: 1; transform: translateY(0) scale(1); background-color: #1a1a1a; border-color: #2a2a2a; }
+}
+
+.task-item.task-drop-in {
+  animation: taskDropIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}

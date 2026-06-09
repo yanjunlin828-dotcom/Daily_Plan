@@ -1,0 +1,390 @@
+/* 备忘录按钮 */
+.memo-btn {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: #555;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, box-shadow 0.2s;
+  letter-spacing: 0.04em;
+}
+
+.memo-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+.memo-btn.has-content {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  animation: memoBtnPulse 2.5s ease-in-out infinite;
+}
+
+@keyframes memoBtnPulse {
+  0%, 100% { box-shadow: none; }
+  50%       { box-shadow: 0 0 8px var(--accent-dim); }
+}
+
+/* 日期导航 */
+.nav-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid #1e1e1e;
+}
+
+.nav-btn {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: #666;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.nav-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+/* ── 双栏布局 ────────────────────────────────────────────── */
+
+.app-layout {
+  display: flex;
+  gap: var(--panel-gap);
+  align-items: stretch;
+  width: 100%;
+  height: 100%;
+  max-width: calc(var(--panel-goals-width) + var(--panel-gap) + var(--panel-daily-max));
+}
+
+.panel-goals {
+  width: var(--panel-goals-width);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-daily {
+  flex: 1;
+  min-width: 0;
+  max-width: var(--panel-daily-max);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── 左栏面板标题 ────────────────────────────────────────── */
+
+.panel-goals-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-title {
+  font-size: 13px;
+  color: #888;
+  letter-spacing: 0.05em;
+}
+
+.toggle-arrow {
+  font-size: 11px;
+  color: #444;
+  display: none;
+}
+
+/* ── 类型切换器 ──────────────────────────────────────────── */
+
+.goals-type-switcher {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.type-btn {
+  flex: 1;
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: #555;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.type-btn.active-goal { color: var(--accent);   border-color: var(--accent-dim);   }
+.type-btn.active-todo { color: var(--accent); border-color: var(--accent-dim); }
+
+/* ── 左栏输入区 ──────────────────────────────────────────── */
+
+.goals-input-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 20px;
+  transition: border-color 0.2s;
+}
+
+.goals-input-section:focus-within {
+  border-color: var(--accent);
+}
+
+.goals-task-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e0e0e0;
+  font-family: inherit;
+  font-size: 15px;
+  caret-color: var(--accent);
+}
+
+.goals-task-input::placeholder { color: #444; }
+
+.goals-add-btn {
+  background: transparent;
+  border: 1px solid #333;
+  color: var(--accent);
+  font-size: 18px;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: background-color 0.2s, border-color 0.2s;
+  padding: 0;
+}
+
+.goals-add-btn:hover {
+  background-color: var(--accent);
+  color: #0f0f0f;
+  border-color: var(--accent);
+}
+
+/* ── 条目列表基础样式 ────────────────────────────────────── */
+
+.goals-scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.goals-scroll-area::-webkit-scrollbar { width: 4px; }
+.goals-scroll-area::-webkit-scrollbar-track { background: transparent; }
+.goals-scroll-area::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+.goals-scroll-area::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+
+.goals-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.goal-item {
+  background-color: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+  position: relative;
+}
+
+.goal-item:hover { border-color: #3a3a3a; background-color: #1e1e1e; }
+.goal-item:hover .goal-delete-btn { opacity: 1; }
+
+.goal-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.goal-prefix {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #777;
+  user-select: none;
+}
+
+.goal-text {
+  flex: 1;
+  font-size: 15px;
+  color: #e0e0e0;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.goal-delete-btn {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  color: #666;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.2s, opacity 0.2s;
+  flex-shrink: 0;
+  font-family: inherit;
+}
+
+.goal-delete-btn:hover { color: #ff4444; }
+
+/* 目标备忘录按钮 */
+.goal-memo-btn {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  color: #555;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  transition: color 0.2s, opacity 0.2s;
+  flex-shrink: 0;
+  font-family: inherit;
+  letter-spacing: 0.05em;
+}
+
+.goal-item:hover .goal-memo-btn { opacity: 1; }
+.goal-memo-btn:hover { color: var(--accent); }
+
+.goal-memo-btn.has-memo {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* Todo 类型样式 */
+.goal-item.type-todo .goal-prefix { color: #777; }
+.goal-item.type-todo:hover .goal-prefix { color: #999; }
+.goal-item.todo-done:hover .goal-prefix { color: var(--accent); }
+
+/* Todo 完成态 */
+.goal-item.todo-done { border-left: 2px solid var(--accent-dim); background-color: #161616; }
+.goal-item.todo-done .goal-prefix { color: var(--accent); }
+.goal-item.todo-done .goal-text { color: #555; text-decoration: line-through; }
+
+/* 分组标题 */
+.goals-group-header {
+  font-size: 12px;
+  color: #666;
+  padding: 8px 0 4px;
+  letter-spacing: 0.08em;
+  user-select: none;
+}
+
+/* 空状态 */
+.goals-empty-state {
+  text-align: center;
+  padding: 32px 0;
+  color: #666;
+  font-size: 13px;
+}
+
+/* 入场动画 */
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.goal-item.entering { animation: slideInLeft 0.3s ease; }
+
+/* ── Phase 3：置顶按钮 ───────────────────────────────────── */
+
+.goal-pin-btn {
+  background: transparent;
+  border: none;
+  color: #333;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 4px;
+  flex-shrink: 0;
+  font-family: inherit;
+  transition: color 0.2s;
+  line-height: 1;
+}
+
+.goal-pin-btn:hover { color: var(--accent); }
+.goal-item.pinned .goal-pin-btn { color: var(--accent); }
+
+/* ── 响应式：小屏折叠左栏 ────────────────────────────────── */
+
+@media (max-width: 900px) {
+  body {
+    padding: 24px 16px;
+  }
+
+  .app-layout {
+    flex-direction: column;
+    max-width: 640px;
+    gap: 0;
+    align-items: stretch;
+    height: 100%;
+  }
+
+  .panel-goals {
+    width: 100%;
+    padding-top: 0;
+    padding-bottom: 0;
+    max-height: 52px;
+    flex-shrink: 0;
+    transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    border-bottom: 1px solid #1a1a1a;
+    margin-bottom: 16px;
+  }
+
+  .panel-goals.expanded {
+    max-height: 340px;
+    padding-bottom: 16px;
+  }
+
+  .panel-goals-toggle {
+    cursor: pointer;
+    padding: 16px 0;
+    margin-bottom: 0;
+  }
+
+  .toggle-arrow {
+    display: inline-block !important;
+    color: #555;
+    font-size: 11px;
+    transition: transform 0.3s ease;
+  }
+
+  .panel-goals.expanded .toggle-arrow {
+    transform: rotate(180deg);
+  }
+
+  .panel-daily {
+    max-width: 100%;
+    flex: 1;
+    min-height: 0;
+  }
+}

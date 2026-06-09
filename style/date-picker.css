@@ -1,0 +1,231 @@
+/* ── 日期 Chip（替换优先级点） ────────────────────────────── */
+
+.date-chip {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 7px;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s, background-color 0.15s, opacity 0.2s;
+  line-height: 1.5;
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* 无日期：平时隐藏，hover 目标行时才显示 */
+.date-chip--no-date {
+  color: #444;
+  border-color: transparent;
+  opacity: 0;
+}
+
+.goal-item:hover .date-chip--no-date {
+  opacity: 1;
+  color: #777;
+  border-color: #2a2a2a;
+}
+
+.date-chip--no-date:hover {
+  color: var(--accent) !important;
+  border-color: var(--accent-dim) !important;
+}
+
+/* 已过期 */
+.date-chip--overdue {
+  color: var(--danger);
+  border-color: var(--danger-dim);
+  background-color: var(--danger-bg);
+}
+
+.date-chip--overdue:hover {
+  border-color: var(--danger);
+}
+
+/* 今天截止 */
+.date-chip--today {
+  color: var(--warn);
+  border-color: var(--warn-dim);
+  animation: duePulse 0.9s ease-in-out infinite;
+}
+
+.date-chip--today:hover {
+  border-color: var(--warn);
+}
+
+/* 7天内 */
+.date-chip--soon {
+  color: #e8a020;
+  border-color: #e8a02050;
+}
+
+.date-chip--soon:hover {
+  border-color: #e8a020;
+}
+
+/* 正常（超过7天） */
+.date-chip--normal {
+  color: #999;
+  border-color: #333;
+}
+
+.date-chip--normal:hover {
+  color: #bbb;
+  border-color: #444;
+}
+
+/* ── 日期选择器弹窗 ────────────────────────────────────────── */
+
+@keyframes datePickerIn {
+  from { opacity: 0; transform: scale(0.88) translateY(-6px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+
+.date-picker-popover {
+  position: fixed;
+  z-index: 9999;
+  background: #141414;
+  border: 1px solid var(--accent-dim);
+  border-radius: 10px;
+  padding: 12px;
+  width: 224px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 0 1px #00ff8810;
+  font-family: 'JetBrains Mono', 'Courier New', 'Consolas', monospace;
+  animation: datePickerIn 0.18s cubic-bezier(0.34, 1.4, 0.64, 1) forwards;
+  transform-origin: top left;
+  user-select: none;
+}
+
+.date-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.date-picker-nav {
+  background: transparent;
+  border: none;
+  color: #666;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: 4px;
+  transition: color 0.15s, background-color 0.15s;
+  line-height: 1;
+}
+
+.date-picker-nav:hover {
+  color: var(--accent);
+  background-color: var(--accent-bg);
+}
+
+.date-picker-month-label {
+  color: #ccc;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.date-picker-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+
+.date-picker-weekdays span {
+  text-align: center;
+  font-size: 10px;
+  color: #444;
+  padding: 2px 0;
+}
+
+.date-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.date-picker-day {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #aaa;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s;
+  position: relative;
+}
+
+.date-picker-day:not(.date-picker-day--empty):hover {
+  background-color: var(--accent-bg-hover);
+  color: var(--accent);
+}
+
+.date-picker-day--empty {
+  cursor: default;
+}
+
+/* 今天：绿色文字 + 底部小点 */
+.date-picker-day--today {
+  color: var(--accent);
+}
+
+.date-picker-day--today::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* 已选中 */
+.date-picker-day--selected {
+  background-color: var(--accent);
+  color: #0f0f0f;
+  font-weight: 700;
+}
+
+.date-picker-day--selected:hover {
+  background-color: var(--accent);
+  color: #0f0f0f;
+}
+
+/* 同时是今天又是选中：保留 selected 样式，不显示底部小点 */
+.date-picker-day--selected.date-picker-day--today::after {
+  display: none;
+}
+
+.date-picker-footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #1e1e1e;
+  display: flex;
+  justify-content: center;
+}
+
+.date-picker-clear {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: #555;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 14px;
+  border-radius: 8px;
+  transition: color 0.15s, border-color 0.15s;
+  letter-spacing: 0.03em;
+}
+
+.date-picker-clear:hover {
+  color: var(--danger);
+  border-color: var(--danger-dim);
+}

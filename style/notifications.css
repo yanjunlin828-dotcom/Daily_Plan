@@ -1,0 +1,48 @@
+/* ── 存储失败 Toast ───────────────────────────────────────── */
+
+.storage-error-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  padding: 10px 20px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 13px;
+  z-index: 9999;
+  white-space: nowrap;
+  animation: overlayIn 0.2s ease forwards;
+}
+
+.storage-info-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a4731;
+  border: 1px solid #00ff88;
+  color: #00ff88;
+  padding: 10px 20px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 13px;
+  z-index: 9999;
+  white-space: nowrap;
+  animation: overlayIn 0.2s ease forwards;
+}
+
+/* 日历图例：金色小方块 */
+.cal-legend-hard-box {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid #c8850a88;
+  background: #c8850a0d;
+  box-shadow: 0 0 5px #c8850a44;
+  flex-shrink: 0;
+  margin-left: 6px;
+}

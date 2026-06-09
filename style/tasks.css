@@ -1,0 +1,287 @@
+/* 任务列表 */
+.task-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background-color: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s, border-left-color 0.2s;
+  position: relative;
+}
+
+.task-item:hover {
+  border-color: #3a3a3a;
+  background-color: #1e1e1e;
+}
+
+.task-item:hover .delete-btn {
+  opacity: 1;
+}
+
+.task-checkbox {
+  width: 24px;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #777;
+  line-height: 1;
+}
+
+.task-item.done {
+  border-left: 2px solid var(--accent-dim);
+  background-color: #161616;
+}
+
+.task-item.done .task-checkbox {
+  color: var(--accent);
+}
+
+.task-text {
+  flex: 1;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #e0e0e0;
+  word-break: break-all;
+  transition: color 0.2s;
+}
+
+.task-item.done .task-text {
+  text-decoration: line-through;
+  color: #555;
+}
+
+.delete-btn {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  color: #666;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.2s, opacity 0.2s;
+  flex-shrink: 0;
+  font-family: inherit;
+}
+
+.delete-btn:hover {
+  color: #ff4444;
+}
+
+/* 空状态 */
+.empty-state {
+  text-align: center;
+  padding: 48px 0;
+  color: #444;
+}
+
+.empty-icon {
+  font-size: 32px;
+  display: block;
+  margin-bottom: 12px;
+  animation: blink 1s step-end infinite;
+}
+
+.empty-state p {
+  font-size: 14px;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* 全部完成横幅 */
+.all-done-banner {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid var(--accent-dim);
+  border-radius: 8px;
+  background-color: var(--accent-bg);
+  color: var(--accent);
+  text-align: center;
+  font-size: 14px;
+  letter-spacing: 0.05em;
+  animation: fadeIn 0.4s ease;
+}
+
+.hidden {
+  display: none;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* 完成动画 */
+@keyframes taskComplete {
+  0%   { transform: scale(1); background-color: #1a1a1a; }
+  40%  { transform: scale(1.025); background-color: var(--accent-bg-task); }
+  100% { transform: scale(1); background-color: #1a1a1a; }
+}
+
+.task-item.completing {
+  animation: taskComplete 0.4s ease;
+}
+
+/* 内联编辑输入框 */
+.task-edit-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--accent);
+  outline: none;
+  color: #e0e0e0;
+  font-family: inherit;
+  font-size: 15px;
+  caret-color: var(--accent);
+  padding: 2px 0;
+}
+
+/* 优先级按钮 */
+.priority-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  flex-shrink: 0;
+  transition: transform 0.1s, opacity 0.2s;
+  line-height: 1;
+  font-family: inherit;
+  opacity: 0.85;
+}
+
+.priority-btn:hover {
+  opacity: 1;
+  transform: scale(1.3);
+}
+
+/* 时间按钮 */
+.time-toggle-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 4px;
+  flex-shrink: 0;
+  color: #555;
+  opacity: 0;
+  transition: color 0.2s, opacity 0.15s;
+  line-height: 1;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.task-item:hover .time-toggle-btn {
+  opacity: 1;
+}
+
+.time-toggle-btn:hover {
+  color: #888;
+}
+
+/* 已设时间：始终可见，显示为 chip */
+.time-toggle-btn--active {
+  font-size: 11px;
+  color: #77aa77;
+  background-color: #1c2a1c;
+  border: 1px solid #2a4a2a !important;
+  border-radius: 4px;
+  padding: 2px 8px;
+  letter-spacing: 0.02em;
+  opacity: 1 !important;
+}
+
+.time-toggle-btn--active:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim) !important;
+}
+
+.time-btn-wrapper {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* 当前任务高光 */
+.task-item.task-time-active {
+  border-left: 3px solid var(--accent);
+  background-color: #1a231a;
+  box-shadow: inset 3px 0 10px rgba(0, 255, 136, 0.05);
+}
+
+.task-item.task-time-active:hover {
+  background-color: #1e281e;
+}
+
+/* 标签 */
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.tag-chip {
+  font-size: 11px;
+  color: #888;
+  background-color: #222;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 1px 7px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, background-color 0.2s;
+  user-select: none;
+}
+
+.tag-chip:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+.tag-chip.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background-color: var(--accent-faint);
+}
+
+/* 标签过滤提示条 */
+.tag-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 6px 12px;
+  background-color: var(--accent-bg);
+  border: 1px solid var(--accent-mid);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.tag-filter-clear {
+  background: transparent;
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.tag-filter-clear:hover {
+  background-color: var(--accent-bg-hover);
+}

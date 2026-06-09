@@ -1,0 +1,61 @@
+/* 头部 */
+.header {
+  margin-bottom: 32px;
+}
+
+.date-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.prompt {
+  color: var(--accent);
+  font-size: 18px;
+  user-select: none;
+}
+
+.date-sync-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.date-text {
+  font-size: 20px;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+  color: #f0f0f0;
+}
+
+/* 进度 */
+.progress-section {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.progress-text {
+  font-size: 13px;
+  color: #888;
+  white-space: nowrap;
+  min-width: 100px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 4px;
+  background-color: #3a3a3a;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background-color: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 6px var(--accent-dim);
+}

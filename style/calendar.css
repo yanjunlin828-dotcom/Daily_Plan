@@ -1,0 +1,275 @@
+/* ── 日历入口按钮 ─────────────────────────────────────────── */
+
+.nav-center-btns {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.cal-btn {
+  background: transparent;
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  letter-spacing: 0.04em;
+  animation: memoBtnPulse 2.5s ease-in-out infinite;
+}
+
+/* ── 日历模态卡片 ─────────────────────────────────────────── */
+
+.cal-modal {
+  width: 100%;
+  max-width: 420px;
+  background: #141414;
+  border: 1px solid var(--accent-dim);
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px #00ff8810, 0 24px 64px rgba(0, 0, 0, 0.7), 0 0 40px rgba(0, 255, 136, 0.07);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalIn 0.28s cubic-bezier(0.34, 1.36, 0.64, 1) forwards;
+}
+
+.memo-overlay.closing .cal-modal {
+  animation: modalOut 0.2s ease forwards;
+}
+
+/* 头部 */
+.cal-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 24px 16px;
+}
+
+.cal-modal-title {
+  color: var(--accent);
+  font-size: 16px;
+  letter-spacing: 0.06em;
+  flex: 1;
+}
+
+.cal-today-btn {
+  background: transparent;
+  border: 1px solid #333;
+  color: #666;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  letter-spacing: 0.04em;
+}
+
+.cal-today-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+/* 月份导航 */
+.cal-month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 24px 8px;
+}
+
+.cal-nav-arrow {
+  background: transparent;
+  border: none;
+  color: #555;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 12px;
+  border-radius: 4px;
+  transition: color 0.15s, background-color 0.15s;
+  font-family: inherit;
+  line-height: 1;
+}
+
+.cal-nav-arrow:hover {
+  color: var(--accent);
+  background-color: var(--accent-bg);
+}
+
+.cal-month-label {
+  font-size: 16px;
+  color: #ccc;
+  letter-spacing: 0.1em;
+  user-select: none;
+}
+
+/* 星期标题行 */
+.cal-weekday-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  padding: 4px 16px 6px;
+  text-align: center;
+}
+
+.cal-weekday-row span {
+  font-size: 11px;
+  color: #666;
+  letter-spacing: 0.05em;
+  padding: 4px 0;
+}
+
+.cal-weekday-row span:first-child,
+.cal-weekday-row span:last-child {
+  color: #4a4a4a;
+}
+
+/* 日期网格 */
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  padding: 0 16px 14px;
+}
+
+/* 日期单元格 */
+.cal-day {
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  color: #b0b0b0;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  user-select: none;
+}
+
+/* 空格占位 */
+.cal-day.empty {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* hover 态 */
+.cal-day:not(.empty):not(.other-month):hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background-color: var(--accent-bg);
+  transform: scale(1.08);
+  z-index: 1;
+}
+
+/* 今日 */
+.cal-day.today {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  font-weight: bold;
+}
+
+/* 当前查看日（selected） */
+.cal-day.selected {
+  background-color: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent-mid);
+}
+
+/* 今日 + selected 叠加：加强高亮 */
+.cal-day.today.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 8px var(--accent-dim);
+}
+
+/* workhard selected：金色覆盖绿色 */
+.cal-day.workhard.selected {
+  background-color: rgba(200, 133, 10, 0.20);
+  color: #ffc840;
+  border-color: #c8850a;
+  animation: none;
+  box-shadow: 0 0 10px rgba(200, 133, 10, 0.45);
+}
+
+/* workhard + today + selected */
+.cal-day.workhard.today.selected {
+  border-color: #ffaa00;
+  box-shadow: 0 0 12px rgba(255, 170, 0, 0.55);
+}
+
+/* 其他月份溢出日（暂不显示，仅保留占位逻辑） */
+.cal-day.other-month {
+  color: #2a2a2a;
+  pointer-events: none;
+}
+
+
+/* 有备忘录的 // 标记 */
+.cal-day-mark {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  font-size: 8px;
+  color: var(--accent);
+  line-height: 1;
+  pointer-events: none;
+  letter-spacing: -0.05em;
+  font-family: inherit;
+}
+
+/* 日历弹窗底部 */
+.cal-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px 18px;
+}
+
+.cal-legend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #444;
+  font-size: 11px;
+}
+
+.cal-legend-glow {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background-color: rgba(0, 255, 136, 0.09);
+  border: 1px solid var(--accent-dim);
+  box-shadow: 0 0 6px rgba(0, 255, 136, 0.25);
+  flex-shrink: 0;
+}
+
+.cal-legend-mark {
+  color: #666;
+  font-size: 10px;
+  letter-spacing: -0.05em;
+  margin-left: 6px;
+  font-family: inherit;
+}
+
+.cal-hint {
+  color: #333;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+/* 月份切换滑动动画 */
+@keyframes calGridSlideLeft {
+  from { opacity: 0; transform: translateX(18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes calGridSlideRight {
+  from { opacity: 0; transform: translateX(-18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.cal-grid.slide-left  { animation: calGridSlideLeft  0.2s ease; }
+.cal-grid.slide-right { animation: calGridSlideRight 0.2s ease; }

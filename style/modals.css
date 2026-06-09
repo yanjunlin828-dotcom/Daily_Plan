@@ -1,0 +1,141 @@
+/* ── 备忘录弹窗 ───────────────────────────────────────────── */
+
+@keyframes overlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes overlayOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.93); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+@keyframes modalOut {
+  from { opacity: 1; transform: translateY(0)    scale(1); }
+  to   { opacity: 0; transform: translateY(12px) scale(0.95); }
+}
+
+.memo-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: overlayIn 0.22s ease forwards;
+}
+
+.memo-overlay.closing {
+  animation: overlayOut 0.2s ease forwards;
+}
+
+.memo-overlay.hidden {
+  display: none;
+}
+
+.memo-modal {
+  width: 100%;
+  max-width: 720px;
+  background: #141414;
+  border: 1px solid var(--accent-dim);
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px #00ff8810, 0 24px 64px rgba(0, 0, 0, 0.7), 0 0 40px rgba(0, 255, 136, 0.07);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalIn 0.28s cubic-bezier(0.34, 1.36, 0.64, 1) forwards;
+}
+
+.memo-overlay.closing .memo-modal {
+  animation: modalOut 0.2s ease forwards;
+}
+
+
+.memo-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 28px 18px;
+}
+
+.memo-modal-prompt {
+  color: var(--accent);
+  font-size: 17px;
+  flex-shrink: 0;
+}
+
+.memo-modal-title {
+  color: var(--accent);
+  font-size: 17px;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.memo-modal-date {
+  color: #555;
+  font-size: 14px;
+  margin-left: 4px;
+  letter-spacing: 0.04em;
+}
+
+.memo-modal-divider {
+  height: 1px;
+  background: linear-gradient(to right, var(--accent-dim), transparent 80%);
+  margin: 0 28px;
+}
+
+.memo-textarea {
+  flex: 1;
+  min-height: 340px;
+  max-height: 62vh;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: #d0d0d0;
+  font-family: 'JetBrains Mono', 'Courier New', 'Consolas', monospace;
+  font-size: 16px;
+  line-height: 1.8;
+  padding: 24px 28px;
+  caret-color: var(--accent);
+}
+
+.memo-textarea::placeholder {
+  color: #333;
+}
+
+.memo-textarea::-webkit-scrollbar {
+  width: 4px;
+}
+
+.memo-textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.memo-textarea::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 2px;
+}
+
+.memo-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 28px 20px;
+}
+
+.memo-char-count {
+  font-size: 14px;
+  color: #444;
+  transition: color 0.2s;
+}
+
+.memo-char-count.has-content {
+  color: #666;
+}

@@ -1,0 +1,49 @@
+:root {
+  --accent: #00ff88;
+  --accent-dim: #00ff8855;
+  --accent-bg: #00ff8810;
+  --accent-bg-hover: #00ff8820;
+  --accent-bg-task: #00ff8818;
+  --accent-faint: #00ff8815;
+  --accent-mid: #00ff8830;
+
+  /* 语义状态色 */
+  --warn:              #ffaa00;
+  --warn-dim:          #ffaa0055;
+  --warn-bg:           #ffaa0010;
+  --danger:            #ff4444;
+  --danger-dim:        #ff444455;
+  --danger-bg:         #ff444410;
+
+  /* 布局尺寸变量 */
+  --panel-goals-width: 360px;
+  --panel-gap:         24px;
+  --panel-daily-max:   640px;
+
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: #0f0f0f;
+  color: #e0e0e0;
+  font-family: 'JetBrains Mono', 'Courier New', 'Consolas', monospace;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 48px 16px;
+}
+
+.container {
+  width: 100%;
+  max-width: 640px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
