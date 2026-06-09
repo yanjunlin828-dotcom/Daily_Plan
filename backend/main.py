@@ -63,6 +63,10 @@ def init_db():
                 goal_id TEXT PRIMARY KEY,
                 content TEXT NOT NULL DEFAULT ''
             );
+            CREATE TABLE IF NOT EXISTS study_sessions (
+                date_key TEXT PRIMARY KEY,
+                data     TEXT NOT NULL DEFAULT '[]'
+            );
         """)
 
 
@@ -92,12 +96,17 @@ def get_all_data():
             row["goal_id"]: row["content"]
             for row in conn.execute("SELECT goal_id, content FROM goal_memos")
         }
+        sessions = {
+            row["date_key"]: json.loads(row["data"])
+            for row in conn.execute("SELECT date_key, data FROM study_sessions")
+        }
     return {
         "tasks": tasks,
         "goals": goals,
         "workhard": workhard,
         "memos": memos,
         "goal_memos": goal_memos,
+        "sessions": sessions,
     }
 
 
@@ -169,6 +178,19 @@ def save_goal_memo(goal_id: str, body: dict = Body(...)):
             )
         else:
             conn.execute("DELETE FROM goal_memos WHERE goal_id=?", (goal_id,))
+    return {"ok": True}
+
+
+@app.put("/api/sessions/{date_key}")
+def save_sessions(date_key: str, sessions: list[Any] = Body(...)):
+    with get_db() as conn:
+        if sessions:
+            conn.execute(
+                "INSERT OR REPLACE INTO study_sessions (date_key, data) VALUES (?, ?)",
+                (date_key, json.dumps(sessions, ensure_ascii=False)),
+            )
+        else:
+            conn.execute("DELETE FROM study_sessions WHERE date_key=?", (date_key,))
     return {"ok": True}
 
 
