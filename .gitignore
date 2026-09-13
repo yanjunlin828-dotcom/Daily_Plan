@@ -3,3 +3,13 @@ backend/data.db-wal
 backend/data.db-shm
 backend/__pycache__/
 backend/data_backup.json
+node_modules/
+npm-debug.log*
+.tmp/
+.playwright-cli/
+backend/backups/
+desktop/__pycache__/
+tests/__pycache__/
+output/
+out/
+屏幕录制*.gif

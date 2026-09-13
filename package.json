@@ -1,0 +1,15 @@
+{
+  "name": "daily-plan-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Daily Plan 的个人桌面悬浮球",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "desktop": "electron .",
+    "desktop:debug": "electron . --enable-logging",
+    "desktop:smoke": "electron desktop/smoke.cjs"
+  },
+  "devDependencies": {
+    "electron": "44.3.0"
+  }
+}

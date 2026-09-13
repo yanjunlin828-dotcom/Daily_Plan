@@ -9,7 +9,9 @@ const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
 const LONG_PRESS_MS             = 350;
 const LONG_PRESS_MOVE_THRESHOLD = 5;
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = window.location.protocol === 'file:'
+  ? 'http://127.0.0.1:8000/api'
+  : '/api';
 
 // 内存缓存：启动时从后端加载，之后所有读操作均从此处读取，写操作同步更新缓存并异步持久化到后端
 const cache = {
@@ -19,7 +21,26 @@ const cache = {
   goalMemos: {},  // { goalId: string }
   goals:     [],  // GoalItem[]
   sessions:  {},  // { dateKey: Session[] }
+  revisions: { tasks: {}, goals: 0 },
+  timer:     null,
 };
+
+const bucketSaveQueues = new Map();
+const bucketSaveGenerations = new Map();
+
+function enqueueBucketSave(bucketKey, operation) {
+  const previous = bucketSaveQueues.get(bucketKey) || Promise.resolve();
+  const current = previous.catch(() => {}).then(operation);
+  bucketSaveQueues.set(bucketKey, current);
+  current.finally(() => {
+    if (bucketSaveQueues.get(bucketKey) === current) bucketSaveQueues.delete(bucketKey);
+  });
+  return current;
+}
+
+function invalidateBucketSaves(bucketKey) {
+  bucketSaveGenerations.set(bucketKey, (bucketSaveGenerations.get(bucketKey) || 0) + 1);
+}
 
 // ── 日期工具 ──────────────────────────────────────────────
 
@@ -107,6 +128,38 @@ async function apiPut(path, body) {
   }
 }
 
+async function apiJson(method, path, body) {
+  syncBegin();
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const error = new Error(payload.detail?.message || payload.detail || `HTTP ${res.status}`);
+      error.status = res.status;
+      error.payload = payload;
+      throw error;
+    }
+    syncSuccess();
+    return payload;
+  } catch (error) {
+    syncFail();
+    throw error;
+  }
+}
+
+async function refreshAfterConflict(message = '数据已在其他窗口更新，请重试刚才的操作。') {
+  showStorageError(message);
+  await loadFromBackend({ allowMigration: false });
+  state.tasks = loadTasks(state.dateKey);
+  state.goals = loadGoals();
+  renderTasks();
+  renderGoals();
+}
+
 async function apiDelete(path) {
   syncBegin();
   try {
@@ -158,15 +211,26 @@ function loadTasks(dateKey) {
 }
 
 function saveTasks(dateKey, tasks) {
-  cache.tasks[dateKey] = tasks;
-  apiPut(`/tasks/${dateKey}`, tasks);
-}
-
-// ── 学习会话持久化 ────────────────────────────────────────
-
-function saveSessions(dateKey, sessions) {
-  cache.sessions[dateKey] = sessions;
-  apiPut(`/sessions/${dateKey}`, sessions);
+  const snapshot = tasks.map(task => ({ ...task }));
+  const bucketKey = `tasks:${dateKey}`;
+  const generation = bucketSaveGenerations.get(bucketKey) || 0;
+  cache.tasks[dateKey] = snapshot;
+  enqueueBucketSave(bucketKey, async () => {
+    if ((bucketSaveGenerations.get(bucketKey) || 0) !== generation) return;
+    try {
+      const result = await apiJson('PUT', `/tasks/${dateKey}`, {
+        items: snapshot,
+        expectedRevision: cache.revisions.tasks[dateKey] || 0,
+      });
+      cache.revisions.tasks[dateKey] = result.revision;
+    } catch (error) {
+      if (error.status === 409) {
+        invalidateBucketSaves(bucketKey);
+        await refreshAfterConflict();
+      }
+      else showStorageError('任务保存失败，请确认后端服务正在运行。');
+    }
+  });
 }
 
 // ── WorkHard 持久化 ───────────────────────────────────────
@@ -870,7 +934,7 @@ function showCarryDoneBanner(count) {
 // 执行实际数据迁移：将未完成任务移至下一天（delay_days + 1）
 // Bug修复1：接收 source_date_key 参数而非依赖 state.dateKey，
 // 防止用户在动画期间切换日期导致写入错误
-function doCarryOver(pending_tasks, source_date_key, next_date_key) {
+async function doCarryOver(pending_tasks, source_date_key, next_date_key) {
   const carried = pending_tasks.map(t => ({
     ...t,
     id: generateId(),
@@ -883,10 +947,28 @@ function doCarryOver(pending_tasks, source_date_key, next_date_key) {
 
   // 直接操作内存缓存，再分别保存两天的数据到后端
   const next_day_tasks = (cache.tasks[next_date_key] || []).map(migrateTask);
-  cache.tasks[next_date_key] = [...carried, ...next_day_tasks];
-  cache.tasks[source_date_key] = (cache.tasks[source_date_key] || []).filter(t => t.done);
-  apiPut(`/tasks/${next_date_key}`, cache.tasks[next_date_key]);
-  apiPut(`/tasks/${source_date_key}`, cache.tasks[source_date_key]);
+  const target_items = [...carried, ...next_day_tasks];
+  const source_items = (cache.tasks[source_date_key] || []).filter(t => t.done);
+
+  try {
+    const result = await apiJson('POST', '/tasks/carry-over', {
+      sourceDate: source_date_key,
+      targetDate: next_date_key,
+      sourceItems: source_items,
+      targetItems: target_items,
+      expectedSourceRevision: cache.revisions.tasks[source_date_key] || 0,
+      expectedTargetRevision: cache.revisions.tasks[next_date_key] || 0,
+    });
+    cache.tasks[next_date_key] = target_items;
+    cache.tasks[source_date_key] = source_items;
+    cache.revisions.tasks[source_date_key] = result.sourceRevision;
+    cache.revisions.tasks[next_date_key] = result.targetRevision;
+  } catch (error) {
+    await refreshAfterConflict(error.status === 409
+      ? '延续期间任务已在其他窗口变化，请重新操作。'
+      : '任务延续保存失败，请稍后重试。');
+    return false;
+  }
 
   // 仅在用户仍在查看源日期时才更新当前 state 和视图
   if (state.dateKey === source_date_key) {
@@ -894,6 +976,7 @@ function doCarryOver(pending_tasks, source_date_key, next_date_key) {
     renderTasks();
     showCarryDoneBanner(pending_tasks.length);
   }
+  return true;
 }
 
 // 动画序列：高亮 → 浮出 "+N天" → 飞走 → 数据迁移
@@ -947,8 +1030,10 @@ function animateCarryOver(pending_tasks) {
   // 阶段3：全部飞走后执行数据迁移，并自动跳转到明天（传入捕获的 source_date_key）
   const data_update_at = flyout_start + task_el_pairs.length * FLYOUT_STAGGER + FLYOUT_ANIM;
   setTimeout(() => {
-    doCarryOver(pending_tasks, source_date_key, next_date_key);
-    jumpToDate(next_date_key);
+    doCarryOver(pending_tasks, source_date_key, next_date_key).then(success => {
+      if (success) jumpToDate(next_date_key);
+      else renderTasks();
+    });
   }, data_update_at);
 }
 
@@ -1248,8 +1333,25 @@ function loadGoals() {
 }
 
 function saveGoals() {
-  cache.goals = [...state.goals];
-  apiPut('/goals', state.goals);
+  const snapshot = state.goals.map(goal => ({ ...goal }));
+  const generation = bucketSaveGenerations.get('goals') || 0;
+  cache.goals = snapshot;
+  enqueueBucketSave('goals', async () => {
+    if ((bucketSaveGenerations.get('goals') || 0) !== generation) return;
+    try {
+      const result = await apiJson('PUT', '/goals', {
+        items: snapshot,
+        expectedRevision: cache.revisions.goals || 0,
+      });
+      cache.revisions.goals = result.revision;
+    } catch (error) {
+      if (error.status === 409) {
+        invalidateBucketSaves('goals');
+        await refreshAfterConflict();
+      }
+      else showStorageError('目标保存失败，请确认后端服务正在运行。');
+    }
+  });
 }
 
 // ── 长期目标输入解析 ──────────────────────────────────────
@@ -1882,6 +1984,8 @@ function initCalendar() {
 const TIMER_CIRCUMFERENCE = 2 * Math.PI * 90; // ≈ 565.49
 
 const timerState = {
+  sessionId: null,
+  status: 'idle',
   seconds: 0,            // 已累计秒数（暂停时为权威值）
   running: false,
   intervalId: null,
@@ -1889,6 +1993,61 @@ const timerState = {
   prevSecondsInMinute: -1,
   sessionStartWallTime: null,  // 本次会话开始的真实时刻（Date 对象）
 };
+
+function applyTimerSnapshot(snapshot) {
+  if (!snapshot) return;
+  const incomingStatus = snapshot.status || 'idle';
+  const incomingSeconds = Math.max(0, Number(snapshot.elapsedSeconds) || 0);
+  const liveSeconds = timerState.running && timerState.startTimestamp !== null
+    ? Math.max(timerState.seconds, Math.floor((Date.now() - timerState.startTimestamp) / 1000))
+    : timerState.seconds;
+  const canKeepRunningClock = Boolean(
+    timerState.intervalId &&
+    timerState.sessionId &&
+    timerState.sessionId === snapshot.sessionId &&
+    timerState.status === 'running' &&
+    incomingStatus === 'running'
+  );
+
+  if (!canKeepRunningClock && timerState.intervalId) clearInterval(timerState.intervalId);
+  if (!canKeepRunningClock) timerState.intervalId = null;
+  timerState.sessionId = snapshot.sessionId || null;
+  timerState.status = incomingStatus;
+  timerState.seconds = canKeepRunningClock ? Math.max(liveSeconds, incomingSeconds) : incomingSeconds;
+  timerState.running = timerState.status === 'running';
+  if (timerState.running && (!canKeepRunningClock || incomingSeconds > liveSeconds)) {
+    timerState.startTimestamp = Date.now() - timerState.seconds * 1000;
+  } else if (!timerState.running) {
+    timerState.startTimestamp = null;
+  }
+  timerState.sessionStartWallTime = snapshot.startedAtUtc ? new Date(snapshot.startedAtUtc) : null;
+  if (timerState.running && !timerState.intervalId) timerState.intervalId = setInterval(timerSyncFromClock, 1000);
+  cache.timer = snapshot;
+  timerUpdateDisplay();
+  timerUpdateButtonUI();
+}
+
+async function timerCommand(action, body = {}) {
+  try {
+    const snapshot = await apiJson('POST', `/timer/${action}`, body);
+    applyTimerSnapshot(snapshot.timer || snapshot);
+    return snapshot;
+  } catch (error) {
+    showStorageError(error.status === 409 ? error.message : '计时状态保存失败，请稍后重试。');
+    await refreshTimerFromBackend();
+    return null;
+  }
+}
+
+async function refreshTimerFromBackend() {
+  try {
+    const res = await fetch(`${API_BASE}/timer`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    applyTimerSnapshot(await res.json());
+  } catch (error) {
+    console.warn('[daily_plan] 获取计时状态失败:', error);
+  }
+}
 
 // 缓存刻度 DOM 节点，避免每秒重复查询
 let timerTickEls = null;
@@ -1992,6 +2151,7 @@ function timerUpdateButtonUI() {
     timerNavBtn?.classList.remove('running');
 
     if (timerState.seconds > 0) {
+      startBtn.textContent = '▶ RESUME';
       progressRing?.classList.add('paused');
       digitsEl?.classList.add('paused');
     } else {
@@ -2001,42 +2161,33 @@ function timerUpdateButtonUI() {
   }
 }
 
-function timerStart() {
+async function timerStart() {
   if (timerState.running) return;
-  // 首次从零开始时记录会话起始时刻；暂停后继续不重置，保留最初开始时间
-  if (timerState.sessionStartWallTime === null) {
-    timerState.sessionStartWallTime = new Date(Date.now() - timerState.seconds * 1000);
+  if (timerState.sessionId && timerState.status === 'paused') {
+    await timerCommand('resume', { sessionId: timerState.sessionId });
+  } else {
+    await timerCommand('start', {});
   }
-  // 记录偏移后的起始时间，保留已暂停的累计秒数
-  timerState.startTimestamp = Date.now() - timerState.seconds * 1000;
-  timerState.running = true;
-  timerState.intervalId = setInterval(timerSyncFromClock, 1000);
-  timerUpdateButtonUI();
 }
 
-function timerPause() {
+async function timerPause() {
   if (!timerState.running) return;
-  timerSyncFromClock(); // 暂停前最后同步一次，确保精度
-  timerState.running = false;
-  timerState.startTimestamp = null;
-  clearInterval(timerState.intervalId);
-  timerState.intervalId = null;
-  timerUpdateButtonUI();
+  await timerCommand('pause', { sessionId: timerState.sessionId });
 }
 
-function timerReset() {
-  const elapsed = timerState.seconds;
-  const startWall = timerState.sessionStartWallTime;
-
-  timerPause();
-
-  if (elapsed >= 60 && startWall) {
-    recordTimerSession(startWall, new Date(), elapsed);
+async function timerReset() {
+  if (!timerState.sessionId) return;
+  const result = await timerCommand('finish', { sessionId: timerState.sessionId });
+  if (!result) return;
+  if (result.session && result.dateKey) {
+    const existing = cache.sessions[result.dateKey] || [];
+    if (!existing.some(session => session.id === result.session.id)) {
+      cache.sessions[result.dateKey] = [...existing, result.session];
+    }
+    showInfoToast(`· logged ${formatDuration(result.session.duration)}`);
+    if (timerLogState.dateKey === result.dateKey) renderTimerLog();
   }
-
-  timerState.seconds = 0;
   timerState.prevSecondsInMinute = -1;
-  timerState.sessionStartWallTime = null;
 
   // 红色闪烁反馈
   const progressRing = document.getElementById('timer-ring-progress');
@@ -2051,29 +2202,6 @@ function timerReset() {
     timerUpdateDisplay();
     timerUpdateButtonUI();
   }
-}
-
-function recordTimerSession(startDate, endDate, durationSeconds) {
-  const pad2 = n => String(n).padStart(2, '0');
-  const fmtTime = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-  const dateKey = dateToKey(startDate);
-
-  const session = {
-    id: crypto.randomUUID(),
-    start: fmtTime(startDate),
-    end: fmtTime(endDate),
-    duration: durationSeconds,
-  };
-
-  const existing = cache.sessions[dateKey] || [];
-  saveSessions(dateKey, [...existing, session]);
-
-  const h = Math.floor(durationSeconds / 3600);
-  const m = Math.floor((durationSeconds % 3600) / 60);
-  const label = h > 0 ? `${h}h ${m}m` : `${m}m`;
-  showInfoToast(`· logged ${label}`);
-
-  if (timerLogState.dateKey === dateKey) renderTimerLog();
 }
 
 function timerBuildTicks() {
@@ -2250,10 +2378,14 @@ function timerLogNavDate(delta) {
   renderTimerLog();
 }
 
-function deleteTimerSession(dateKey, sessionId) {
-  const updated = (cache.sessions[dateKey] || []).filter(s => s.id !== sessionId);
-  saveSessions(dateKey, updated);
-  renderTimerLog();
+async function deleteTimerSession(dateKey, sessionId) {
+  try {
+    await apiJson('DELETE', `/sessions/${dateKey}/${sessionId}`);
+    cache.sessions[dateKey] = (cache.sessions[dateKey] || []).filter(s => s.id !== sessionId);
+    renderTimerLog();
+  } catch (error) {
+    showStorageError(error.status === 404 ? '这条计时记录已经不存在。' : '删除计时记录失败，请稍后重试。');
+  }
 }
 
 function openTimerPanel() {
@@ -3093,7 +3225,9 @@ function _isBackendEmpty(data) {
     (data.goals                 || []).length === 0  &&
     Object.keys(data.workhard   || {}).length === 0  &&
     Object.keys(data.memos      || {}).length === 0  &&
-    Object.keys(data.goal_memos || {}).length === 0
+    Object.keys(data.goal_memos || {}).length === 0 &&
+    Object.keys(data.sessions   || {}).length === 0 &&
+    (!data.timer || data.timer.status === 'idle')
   );
 }
 
@@ -3130,7 +3264,7 @@ async function _migrateLocalStorageIfNeeded() {
   }
 }
 
-async function loadFromBackend() {
+async function loadFromBackend({ allowMigration = true } = {}) {
   try {
     const res = await fetch(`${API_BASE}/data`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -3142,9 +3276,11 @@ async function loadFromBackend() {
     cache.goalMemos = data.goal_memos || {};
     cache.goals     = data.goals      || [];
     cache.sessions  = data.sessions   || {};
+    cache.revisions = data.revisions  || { tasks: {}, goals: 0 };
+    cache.timer     = data.timer      || null;
 
     // 后端无数据时，自动将 localStorage 历史数据迁移过去
-    if (_isBackendEmpty(data)) {
+    if (allowMigration && _isBackendEmpty(data)) {
       await _migrateLocalStorageIfNeeded();
       // 迁移后重新加载
       const res2 = await fetch(`${API_BASE}/data`);
@@ -3156,6 +3292,8 @@ async function loadFromBackend() {
         cache.goalMemos = data2.goal_memos || {};
         cache.goals     = data2.goals      || [];
         cache.sessions  = data2.sessions   || {};
+        cache.revisions = data2.revisions  || { tasks: {}, goals: 0 };
+        cache.timer     = data2.timer      || null;
       }
     }
     // 后端连接成功，初始同步状态置为绿色
@@ -3169,7 +3307,58 @@ async function loadFromBackend() {
     cache.memos     = JSON.parse(localStorage.getItem(MEMO_STORAGE_KEY)      || '{}');
     cache.goalMemos = JSON.parse(localStorage.getItem(GOAL_MEMO_STORAGE_KEY) || '{}');
     cache.goals     = JSON.parse(localStorage.getItem(GOALS_STORAGE_KEY)     || '[]');
+    cache.revisions = { tasks: {}, goals: 0 };
+    cache.timer     = null;
     // 后端不可用，持续显示红色，提醒用户数据未入库
+    syncHasError = true;
+    updateSyncDot();
+  }
+}
+
+async function pollSharedState() {
+  if (bucketSaveQueues.size > 0 || syncPending > 0) return;
+  try {
+    const res = await fetch(`${API_BASE}/data`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const revisions = data.revisions || { tasks: {}, goals: 0 };
+    const activeElement = document.activeElement;
+    const editableActive = activeElement?.matches('input, textarea, [contenteditable]');
+    const taskDraftActive = Boolean(editableActive && (
+      activeElement?.closest('#task-list, #subtask-panel') ||
+      (activeElement?.id === 'task-input' && activeElement.value.trim())
+    ));
+    const goalDraftActive = Boolean(editableActive && (
+      activeElement?.closest('#goals-list') ||
+      (activeElement?.id === 'goal-input' && activeElement.value.trim())
+    ));
+
+    if (!taskDraftActive) {
+      const currentDateRevision = cache.revisions.tasks[state.dateKey] || 0;
+      const incomingDateRevision = revisions.tasks?.[state.dateKey] || 0;
+      cache.tasks = data.tasks || {};
+      cache.revisions.tasks = revisions.tasks || {};
+      if (incomingDateRevision !== currentDateRevision) {
+        state.tasks = loadTasks(state.dateKey);
+        renderTasks();
+      }
+    }
+
+    if (!goalDraftActive) {
+      const goalsChanged = (revisions.goals || 0) !== (cache.revisions.goals || 0);
+      cache.goals = data.goals || [];
+      cache.revisions.goals = revisions.goals || 0;
+      if (goalsChanged) {
+        state.goals = loadGoals();
+        renderGoals();
+      }
+    }
+
+    cache.sessions = data.sessions || {};
+    applyTimerSnapshot(data.timer);
+    syncHasError = false;
+    updateSyncDot();
+  } catch (error) {
     syncHasError = true;
     updateSyncDot();
   }
@@ -3228,11 +3417,13 @@ async function init() {
   initMemo();
   initCalendar();
   initTimer();
+  applyTimerSnapshot(cache.timer);
   initSubtaskPanel();
   initKeyboardShortcuts();
 
   // 每分钟刷新一次当前任务高光
   setInterval(refreshTimeHighlight, 60 * 1000);
+  setInterval(pollSharedState, 2 * 1000);
 }
 
 function initKeyboardShortcuts() {

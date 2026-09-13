@@ -47,9 +47,9 @@ daily_plan/
 │   └── time-picker.css  # 时间拨盘浮层
 ├── favicon.ico          # 应用图标
 ├── README.md            # 中文文档（功能演示）
-├── TIME_FEATURE_PLAN.md # 时间槽任务系统设计文档（已部分实现）
+├── TIME_FEATURE_PLAN.md # 任务时间段功能的当前实现说明
 └── backend/
-    ├── main.py          # FastAPI 路由 + SQLite 操作，约 227 行
+    ├── main.py          # FastAPI 路由 + SQLite 操作
     ├── requirements.txt
     ├── data.db          # SQLite 数据库（自动创建）
     ├── start.bat        # Windows 启动脚本
@@ -62,12 +62,12 @@ daily_plan/
 
 | 区域 | 职责 |
 |------|------|
-| `cache` 对象 | 全量内存数据：`tasks / workhard / memos / goalMemos / goals` |
-| `state` 对象 | 当前 UI 状态：`dateKey / tasks / goals / activeTag` |
-| `loadData()` | 启动时从 `/api/data` 批量加载，填充 cache |
+| `cache` 对象 | 全量内存数据：`tasks / workhard / memos / goalMemos / goals / sessions` |
+| `state` 对象 | 当前 UI 状态：日期、当日任务、目标视图、标签、日历和备忘录上下文等 |
+| `loadFromBackend()` | 启动时从 `/api/data` 批量加载，填充 `cache`；符合现有触发条件时迁移 localStorage |
 | `saveXxx()` 系列 | 每次变更后调用对应 `/api/xxx` PUT 接口 |
-| 渲染函数 | `renderTasks()` / `renderGoals()` / `renderCalendar()` |
-| 事件绑定 | 集中在文件尾部 `initEventListeners()` |
+| 渲染函数 | `renderTasks()` / `renderGoals()` / `renderCalendarGrid()` / `renderTimerLog()` |
+| 初始化与事件绑定 | `init()` 调用各功能的 `initXxx()`；部分动态元素在渲染时绑定事件 |
 
 ---
 
@@ -76,10 +76,10 @@ daily_plan/
 ### Task（每日任务）
 ```javascript
 {
-  id:            string,   // UUID
+  id:            string,   // generateId() 生成的时间戳 + 随机字符
   text:          string,
   done:          boolean,
-  createdAt:     string,   // ISO timestamp
+  createdAt:     number,   // Date.now() 毫秒时间戳
   tags:          string[],
   priority:      'high' | 'medium' | 'low',
   delay_days:    number,   // 拖延天数（carry-over）
@@ -90,21 +90,34 @@ daily_plan/
 }
 ```
 
+### StudySession（学习计时会话）
+```javascript
+{
+  id:       string,   // crypto.randomUUID()
+  start:    'HH:MM',
+  end:      'HH:MM',
+  duration: number,   // 实际累计秒数
+}
+```
+
+计时器重置时，累计时间达到 60 秒才会生成会话；会话按开始日期归档。
+
 ### Goal（长期目标）
 ```javascript
 {
-  id:       string,   // UUID
+  id:       string,   // generateId() 生成的时间戳 + 随机字符
   type:     'goal' | 'todo',
   text:     string,
   done:     boolean,
-  createdAt: string,
+  createdAt: number,          // Date.now() 毫秒时间戳
   dueDate:  string | null,   // YYYY-MM-DD
   priority: 'high' | 'medium' | 'low',
   pinned:   boolean,
   tags:     string[],
-  archived: boolean,
 }
 ```
+
+目标数据没有独立的 `archived` 字段。Todo 完成后通过 `done: true` 进入“已完成”折叠分组；`goal` 类型当前不能通过点击切换完成状态。
 
 ### SQLite 表结构
 ```sql
@@ -113,6 +126,7 @@ goals      (id INT PRIMARY KEY, data TEXT)           -- JSON数组
 workhard   (date_key TEXT PRIMARY KEY)
 memos      (date_key TEXT PRIMARY KEY, content TEXT)
 goal_memos (goal_id TEXT PRIMARY KEY, content TEXT)
+study_sessions (date_key TEXT PRIMARY KEY, data TEXT) -- JSON数组
 ```
 
 ---
@@ -127,12 +141,17 @@ goal_memos (goal_id TEXT PRIMARY KEY, content TEXT)
 | PUT  | `/api/workhard/{date_key}` | 标记/取消 workhard |
 | PUT  | `/api/memo/{date_key}` | 保存每日备忘 |
 | PUT  | `/api/goal-memo/{goal_id}` | 保存目标备忘 |
+| PUT  | `/api/sessions/{date_key}` | 保存或清空某天的学习计时会话 |
 | DELETE | `/api/goal-memo/{goal_id}` | 删除目标备忘 |
 | POST | `/api/migrate` | localStorage 数据迁移到 SQLite |
 
+`/api/migrate` 当前只迁移任务、目标、WorkHard、每日备忘录和目标备忘录，不包含学习计时会话。前端仅在数据库为空且 localStorage 中至少存在任务、目标或 WorkHard 数据时触发迁移；仅有备忘录的数据不会触发迁移。
+
 ---
 
-## 设计规范
+## 后续开发规范
+
+以下条目是新增和修改代码时应遵循的目标，不表示现有代码已经全部满足。
 
 ### 视觉原则
 - **极简主义**：克制用色，留白充足，无多余装饰
@@ -142,12 +161,12 @@ goal_memos (goal_id TEXT PRIMARY KEY, content TEXT)
 
 ### 交互原则
 - **即时反馈**：操作后立刻有视觉响应（不要等待 API 返回才更新 UI）
-- **乐观更新**：先更新 UI，再异步保存；失败时回滚并提示
+- **乐观更新**：先更新 UI，再异步保存；当前实现失败时提示并尝试写入 localStorage，不会自动回滚 UI
 - **键盘友好**：所有核心操作支持键盘（Enter 确认，Escape 取消）
 - **无障碍提示**：操作失败用 toast 提示，不用 alert
 
 ### 组件一致性
-- 优先级色彩：`high → #ef4444`（红）/ `medium → #f59e0b`（黄）/ `low → #6b7280`（灰）
+- 目标优先级当前色彩：`high → #e74c3c`（红）/ `medium → #f1c40f`（黄）/ `low → #2ecc71`（绿）
 - 标签 chip 样式：`border-radius: 4px`，背景半透明，前缀 `#`
 - 同步状态点：呼吸动效表示保存中，绿点表示已保存，红点表示失败
 
@@ -168,8 +187,7 @@ goal_memos (goal_id TEXT PRIMARY KEY, content TEXT)
 - 动画使用 `transform` / `opacity`，避免触发重排
 
 ### Python（后端）
-- 遵循父目录 CLAUDE.md 的通用规范
-- FastAPI 路由保持薄层（只做参数解析 + 调用 service 函数）
+- FastAPI 路由尽量保持薄层；当前小型后端仍将路由与 SQLite 操作放在同一文件，尚未拆出 service 层
 - SQLite 操作统一用参数化查询，防注入
 
 ---
@@ -179,15 +197,16 @@ goal_memos (goal_id TEXT PRIMARY KEY, content TEXT)
 1. **app.js 已超 3000 行**：新功能优先拆分为独立函数并集中放到相关区域，不要随意追加到文件末尾
 2. **style/ 目录**：每个功能对应一个 CSS 文件，修改某模块样式只需打开对应文件；`style.css` 仅作 @import 入口，不要在其中直接写任何样式规则
 3. **无构建工具**：不能使用 `import/export`（除非整体迁移 ES modules），所有变量均为全局或闭包
-4. **localStorage 作为降级**：后端不可用时自动降级到 localStorage，新功能必须兼容两种模式
+4. **localStorage 作为降级**：任务、目标、WorkHard 和备忘录已支持降级；`sessions` 当前不支持。新增持久化数据时必须明确是否及如何兼容降级与迁移
 5. **日期键格式**：统一使用 `YYYY-MM-DD` 字符串，不使用 Date 对象作为键
-6. **UUID 生成**：使用 `crypto.randomUUID()`（现代浏览器原生支持）
+6. **ID 生成**：任务、目标和子任务沿用 `generateId()`；学习会话使用 `crypto.randomUUID()`。若要统一方案，需要同时考虑旧数据兼容
 
 ---
 
-## 待完成功能（已规划）
+## 任务时间段功能状态
 
-参见 `TIME_FEATURE_PLAN.md`，核心方向是**时间槽任务系统**：
-- 每日任务按 `startTime` 排序，无时间的任务置底
-- 自动高亮当前时间段内的任务（已部分实现）
-- 移除每日任务的优先级排序（目标面板保留优先级）
+该功能已经实现，当前行为详见 `TIME_FEATURE_PLAN.md`：
+- 未完成任务优先；同一完成状态内按 `startTime` 排序，无时间任务置底，再按 `createdAt` 排序
+- 仅在浏览今天时自动高亮当前时间段内的未完成任务，每分钟刷新
+- 每日任务不显示或使用优先级排序；目标面板继续保留优先级
+- 时间编辑使用小时/分钟滚轮拨盘浮层，不是内联数字输入框

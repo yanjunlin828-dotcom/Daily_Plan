@@ -1,212 +1,91 @@
-# 任务时间功能改造计划
+# 任务时间段功能实现说明
 
-> 目标：去除今日计划事项的优先级显示，替换为可选的时间段功能，支持按时间排序和当前任务自动高光。
-
----
-
-## 一、功能概述
-
-| 项目 | 内容 |
-|------|------|
-| 移除 | 今日任务列表中的优先级按钮（`●` 色点）和优先级排序 |
-| 新增 | 每个任务可选开启时间段（开始时间必填，结束时间可选） |
-| 排序 | 有时间的任务按开始时间升序，无时间的任务排在末尾 |
-| 高光 | 自动检测当前时间所在任务，每分钟刷新一次 |
-| 高光样式 | 左侧绿色边框 + 背景微亮 |
+> 状态：已实现。本文记录当前代码行为，不再作为待实施计划使用。
 
 ---
 
-## 二、数据模型变更
+## 一、功能范围
 
-### 任务对象新增字段
-
-```js
-{
-  // 原有字段保留不变...
-  id, text, done, createdAt, tags, delay_days, original_date, subtasks,
-
-  // priority 字段仍保留在数据中（goals 面板还在用），但不在任务列表渲染
-  priority: 'medium',   // 不再在今日列表展示，保留数据兼容性
-
-  // 新增字段
-  startTime: '09:00',   // string | null，格式 'HH:MM'，null 表示未设置
-  endTime:   '10:30',   // string | null，可选，null 表示开放结束
-}
-```
-
-**无需修改后端**：`startTime` / `endTime` 作为任务 JSON 数组的属性字段，随现有的 `tasks` 表一起存储，后端透传，不需要新增 SQLite 列。
-
----
-
-## 三、UI 交互设计
-
-### 3.1 时间开关图标
-
-- 位置：取代原优先级按钮（任务行右侧，`×` 删除按钮左边）
-- 形态：
-  - 未开启：`🕐` 灰色时钟图标（半透明，`opacity: 0.4`）
-  - 已开启：显示时间字符串 `09:00–10:30`，或 `09:00–` （无结束时间时）
-- 点击图标：展开/收起时间输入区（toggles `.time-panel`）
-
-### 3.2 时间输入区（内联展开）
-
-点击时钟图标后，在任务卡片内部展开一行：
-
-```
-[09] : [00]   ─   [10] : [30]   [清除]
-  ↑ 小时  ↑ 分钟     ↑ 可留空
-```
-
-- 四个独立的数字输入框：小时（0–23）、分钟（0–59），开始和结束各一组
-- 结束时间整组可留空（点"清除"或不填）
-- **滚轮输入**：鼠标悬停在任意数字框上，滚轮向上 +1，向下 -1，循环进位
-- **直接输入**：点击数字框直接键入数字，输入满2位自动跳到下一格
-- **确认**：失焦或按 Enter 保存，立即更新任务数据并重排序
-
-### 3.3 时间显示（已设置状态）
-
-任务行中，时钟图标位置替换为时间文本 chip：
-
-```
-[ 09:00 – 10:30 ]   或   [ 09:00 – ]
-```
-
-样式：小字号，灰色背景 pill，点击展开编辑。
-
----
-
-## 四、排序逻辑（替换原优先级排序）
-
-```js
-function taskSortKey(task) {
-  if (!task.startTime) return Infinity;          // 无时间排末尾
-  const [h, m] = task.startTime.split(':').map(Number);
-  return h * 60 + m;                             // 转为分钟数比较
-}
-
-// renderTasks() 中替换原 PRIORITY_ORDER 排序：
-const visibleTasks = [...getVisibleTasks()].sort((a, b) => {
-  if (a.done !== b.done) return a.done ? 1 : -1; // 完成的沉底
-  return taskSortKey(a) - taskSortKey(b);         // 按时间升序
-});
-```
-
----
-
-## 五、当前任务高光
-
-### 5.1 判断逻辑
-
-```js
-function getCurrentTaskId(tasks, now) {
-  const nowMins = now.getHours() * 60 + now.getMinutes();
-
-  for (const task of tasks) {
-    if (!task.startTime || task.done) continue;
-
-    const start = timeToMins(task.startTime);
-    const end   = task.endTime ? timeToMins(task.endTime) : null;
-
-    if (end !== null) {
-      if (nowMins >= start && nowMins < end) return task.id;
-    } else {
-      // 无结束时间：高光持续到下一个有 startTime 任务开始
-      const nextStart = getNextTaskStart(tasks, start);
-      const effectiveEnd = nextStart ?? start + 60;  // fallback +60分钟
-      if (nowMins >= start && nowMins < effectiveEnd) return task.id;
-    }
-  }
-  return null;
-}
-```
-
-### 5.2 刷新机制
-
-```js
-// 每分钟刷新一次高光状态（不重渲染整个列表，只更新 CSS 类）
-function refreshTimeHighlight() {
-  const activeId = getCurrentTaskId(getTodayTasks(), new Date());
-  document.querySelectorAll('.task-item').forEach(el => {
-    const isActive = el.dataset.taskId === activeId;
-    el.classList.toggle('task-time-active', isActive);
-  });
-}
-
-// 在 init() 中启动：
-refreshTimeHighlight();
-setInterval(refreshTimeHighlight, 60 * 1000);
-// 同时在整点时对齐（可选，避免误差累积）
-```
-
-### 5.3 高光样式
-
-```css
-.task-item.task-time-active {
-  border-left: 3px solid var(--accent);        /* 绿色左边框 */
-  background-color: #1f2a1f;                   /* 背景微绿亮 */
-  box-shadow: inset 3px 0 8px rgba(0, 255, 136, 0.06);
-}
-```
-
----
-
-## 六、涉及修改的文件与代码位置
-
-| 文件 | 修改位置 | 内容 |
-|------|----------|------|
-| `app.js` | L4–8 | 删除 `PRIORITY_LABELS` / `PRIORITY_COLORS` / `PRIORITY_ORDER`（goals 部分仍需保留） |
-| `app.js` | L211–221 `buildPriorityBtn()` | 替换为 `buildTimeBtn(task, onChange)` |
-| `app.js` | L275 任务创建 | 新增 `startTime: null, endTime: null` 默认字段 |
-| `app.js` | L348–454 `renderTasks()` | 排序逻辑替换；任务 HTML 中移除优先级按钮，加入时间 btn |
-| `app.js` | L1856–1887 子任务进度条 | 进度条颜色从 `PRIORITY_COLORS[task.priority]` 改为 `var(--accent)` 固定颜色 |
-| `app.js` | `init()` 末尾 | 添加 `refreshTimeHighlight()` + `setInterval` |
-| `app.js` | 新增函数 | `buildTimeBtn()` / `timeToMins()` / `getCurrentTaskId()` / `getNextTaskStart()` / `refreshTimeHighlight()` |
-| `style.css` | L330–347 `.priority-btn` | 替换为 `.time-toggle-btn` 样式 |
-| `style.css` | 新增 | `.time-panel`（展开区）/ `.time-input-group`（数字框组）/ `.task-time-active`（高光） |
-| `index.html` | 无需修改 | 任务 HTML 由 JS 动态生成 |
-
----
-
-## 七、Goals 面板（左栏）的处理
-
-左栏「长期目标 / Todo」依然保留优先级显示和排序，**无需修改**。
-
-唯一需注意：`PRIORITY_COLORS` 常量在子任务进度条中也被用到（`app.js L1856`），移除后改为固定颜色 `var(--accent)`。Goals 面板的 `PRIORITY_COLORS` 使用可保留该常量，或在 Goals 渲染函数中单独内联颜色。
-
----
-
-## 八、实施步骤顺序
-
-```
-Step 1  数据模型：任务创建时加入 startTime/endTime 默认字段
-Step 2  移除优先级：renderTasks() 中删除 priority btn 和 PRIORITY_ORDER 排序
-Step 3  子任务进度条颜色：改为固定 var(--accent)
-Step 4  新增时间排序：taskSortKey() + 替换 renderTasks 排序逻辑
-Step 5  buildTimeBtn()：时钟图标 + 时间 chip 显示
-Step 6  时间输入面板：.time-panel 展开 UI，数字框 + 滚轮事件
-Step 7  数据保存：输入确认后更新 cache，apiPut()，触发 renderTasks()
-Step 8  高光机制：refreshTimeHighlight() + setInterval
-Step 9  CSS：.time-toggle-btn / .time-panel / .time-input-group / .task-time-active
-Step 10 测试：边界情况（跨零点、无时间任务、全天无时间等）
-```
-
----
-
-## 九、边界情况处理
-
-| 情况 | 处理方式 |
+| 项目 | 当前行为 |
 |------|----------|
-| 所有任务均无时间 | 维持原始创建顺序（按 createdAt 排序） |
-| 多个任务时间重叠 | 高光第一个匹配的任务（按数组顺序） |
-| 时间跨零点（如 23:00–01:00） | 暂不支持，结束时间须大于开始时间，输入时校验 |
-| 已完成的任务 | 不参与高光判断，排序沉底 |
-| 任务被拖拽（如未来有拖拽功能）| 手动调整时间后，时间字段以手动为准，不自动覆盖 |
+| 每日任务优先级 | 数据中的 `priority` 字段为兼容旧数据而保留，但每日任务列表不显示优先级，也不按优先级排序 |
+| 时间段 | 每个每日任务可保存 `startTime` 和 `endTime` |
+| 编辑方式 | 点击任务右侧的时钟或时间文本，打开小时/分钟滚轮拨盘浮层 |
+| 排序 | 未完成任务在前、完成任务在后；各组内有时间的任务按开始时间升序，无时间任务置底；相同时按 `createdAt` 排序 |
+| 当前任务 | 仅浏览今天时，自动高亮当前时间段内的第一个未完成任务 |
+| Goals 面板 | 长期目标和 Todo 继续显示并使用优先级 |
 
 ---
 
-## 十、不涉及的范围（本次不动）
+## 二、任务数据模型
 
-- 后端 `main.py`：无需修改
-- Goals 面板（左栏）：优先级功能保持不变
-- 子任务面板（subtask overlay）：不新增时间字段
-- 备忘录 / 日历 / 工作模式等其他功能
+时间字段作为任务 JSON 的属性保存，不需要独立 SQLite 列：
+
+```javascript
+{
+  id:            string,
+  text:          string,
+  done:          boolean,
+  createdAt:     number,
+  tags:          string[],
+  priority:      'high' | 'medium' | 'low', // 兼容字段，每日任务列表不使用
+  delay_days:    number,
+  original_date: string | null,
+  subtasks:      [{ id, text, done }],
+  startTime:     'HH:MM' | null,
+  endTime:       'HH:MM' | null,
+}
+```
+
+`migrateTask()` 会为旧任务补齐 `startTime: null` 和 `endTime: null`。任务列表通过既有的 `PUT /api/tasks/{date_key}` 保存整天的 JSON 数组。
+
+---
+
+## 三、时间编辑交互
+
+- 未设置时间时显示 `⏱`。
+- 已设置时间时显示 `09:00–10:30`；代码兼容只有开始时间的旧数据，并显示为 `09:00–`。
+- 点击后打开 `#time-picker-popover` 浮层，开始和结束时间各使用一组小时/分钟拨盘。
+- 可通过鼠标滚轮或点击拨盘上下区域调节数值。
+- 点击“确认”同时保存开始和结束时间；点击“清除”同时清除两者。
+- 当前 UI 不提供“只填写开始时间”的入口。
+- 当结束时间不晚于开始时间时，调整开始时间会把结束拨盘校正到与开始时间相同；跨零点时间段暂不支持。
+- 保存时间时使用 `saveTaskTimeSilent()`，不重建整个任务列表，因此当前列表顺序会在下一次完整渲染时更新。
+
+相关实现位于 `app.js` 的“任务时间功能”“时间拨盘组件”“时间拨盘浮层”区域，样式位于 `style/time-picker.css` 和 `style/tasks.css`。
+
+---
+
+## 四、排序规则
+
+`renderTasks()` 的实际比较顺序为：
+
+1. 未完成任务排在完成任务之前。
+2. 同一完成状态内，有 `startTime` 的任务按开始分钟数升序。
+3. 无 `startTime` 的任务排在有时间任务之后。
+4. 开始时间相同或都无时间时，按 `createdAt` 升序。
+
+标签筛选只决定参与显示的任务，进度统计仍使用当日全部任务。
+
+---
+
+## 五、当前任务高亮
+
+`getCurrentTaskId(tasks, now)` 只考虑设置了 `startTime` 且未完成的任务：
+
+- 有结束时间：高亮区间为 `[startTime, endTime)`。
+- 没有结束时间的兼容数据：高亮到下一个定时任务开始；如果没有下一个任务，则默认持续 60 分钟。
+- 时间重叠时，按开始时间排序后的第一个匹配任务优先。
+- 浏览非今天日期时，不显示当前任务高亮。
+
+`renderTasks()` 后会立即刷新高亮，`init()` 还会每 60 秒调用一次 `refreshTimeHighlight()`。当前定时器没有对齐到整分钟边界。
+
+---
+
+## 六、边界与非范围
+
+- 不支持跨零点时间段，例如 `23:00–01:00`。
+- 子任务没有独立时间字段。
+- Goals 面板的截止日期与每日任务时间段是两套独立功能。
+- 后端只透传任务 JSON，不验证时间字符串格式或起止关系。
+- 本功能没有独立自动化测试；修改排序或高亮逻辑后需要补充静态检查和浏览器交互验证。

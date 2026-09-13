@@ -1,0 +1,29 @@
+.task-row {
+  position: relative;
+  will-change: transform;
+}
+
+.task-row.is-completing {
+  background: linear-gradient(90deg, #65efa514, transparent 72%);
+  border-color: #65efa538;
+}
+
+.task-row.is-completing::after {
+  content: "";
+  position: absolute;
+  inset: 7px 0;
+  border: 1px solid #65efa52e;
+  border-radius: 9px;
+  pointer-events: none;
+  animation: complete-wash .7s var(--ease) both;
+}
+
+@keyframes complete-wash {
+  0% { opacity: 0; transform: scale(.97); }
+  28% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-row.is-completing::after { animation: none; }
+}
