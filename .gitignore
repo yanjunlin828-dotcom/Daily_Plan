@@ -12,4 +12,7 @@ desktop/__pycache__/
 tests/__pycache__/
 output/
 out/
+.env.trustedsigning
+electron-windows-sign.log
+*.pfx
 屏幕录制*.gif

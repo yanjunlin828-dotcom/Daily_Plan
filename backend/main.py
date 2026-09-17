@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+import sys
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -17,8 +18,41 @@ from fastapi.staticfiles import StaticFiles
 APP_ID = "daily-plan"
 API_VERSION = 2
 BASE_DIR = Path(__file__).parent
-DB_PATH = Path(os.environ.get("DAILY_PLAN_DB_PATH", BASE_DIR / "data.db"))
-FRONTEND_DIR = BASE_DIR.parent
+APP_DATA_FOLDER = "Daily Plan"
+
+
+def resolve_data_dir(environment=None, frozen=None) -> Path:
+    environment = os.environ if environment is None else environment
+    configured = environment.get("DAILY_PLAN_DATA_DIR")
+    if configured:
+        return Path(configured).expanduser()
+    frozen = bool(getattr(sys, "frozen", False)) if frozen is None else frozen
+    if frozen:
+        appdata = environment.get("APPDATA")
+        return (Path(appdata) if appdata else Path.home() / "AppData" / "Roaming") / APP_DATA_FOLDER
+    return BASE_DIR
+
+
+def resolve_frontend_dir() -> Path:
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    return Path(bundle_root) / "web" if bundle_root else BASE_DIR.parent
+
+
+DATA_DIR = resolve_data_dir()
+DB_PATH = Path(os.environ.get("DAILY_PLAN_DB_PATH", DATA_DIR / "data.db"))
+FRONTEND_DIR = resolve_frontend_dir()
+
+
+def read_app_version() -> str:
+    try:
+        package = json.loads((FRONTEND_DIR / "package.json").read_text(encoding="utf-8"))
+        version = package.get("version")
+        return version if isinstance(version, str) and version else "0.0.0"
+    except (OSError, ValueError, TypeError):
+        return "0.0.0"
+
+
+APP_VERSION = read_app_version()
 
 app = FastAPI(title="Daily Plan API")
 app.add_middleware(
@@ -223,7 +257,12 @@ def timer_response(conn: sqlite3.Connection, checkpoint: bool = False) -> dict[s
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "appId": APP_ID, "apiVersion": API_VERSION}
+    return {
+        "ok": True,
+        "appId": APP_ID,
+        "appVersion": APP_VERSION,
+        "apiVersion": API_VERSION,
+    }
 
 
 @app.get("/api/data")

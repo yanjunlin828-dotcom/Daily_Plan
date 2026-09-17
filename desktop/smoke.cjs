@@ -3,6 +3,8 @@ const path=require('node:path');
 const assert=require('node:assert/strict');
 const {app,BrowserWindow}=require('electron');
 const ROOT=path.resolve(__dirname,'..'),OUT=path.join(ROOT,'output','playwright','floating-redesign');
+// Keep smoke-test caches and browser state away from the user's real profile.
+app.setPath('userData',path.join(ROOT,'.tmp',`desktop-smoke-profile-${process.pid}`));
 const errors=[];
 const fixture=String.raw`(() => {
 const key=todayKey();window.fixture={tasks:{[key]:[
@@ -26,7 +28,12 @@ async function capture(w,name){w.showInactive();await wait(w,500);await fs.write
 app.whenReady().then(async()=>{
 await fs.mkdir(OUT,{recursive:true});
 const panel=new BrowserWindow({width:380,height:570,frame:false,show:false,webPreferences:{contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
-panel.webContents.on('console-message',e=>{if(e.level==='error'&&!e.message.includes('ERR_CONNECTION_REFUSED'))errors.push(e.message)});
+// A smoke run must never read or checkpoint the user's live local backend.
+panel.webContents.session.webRequest.onBeforeRequest(
+  {urls:['http://127.0.0.1:8000/*']},
+  (_details,callback)=>callback({cancel:true}),
+);
+panel.webContents.on('console-message',e=>{if(e.level==='error'&&!e.message.includes('ERR_CONNECTION_REFUSED')&&!e.message.includes('ERR_BLOCKED_BY_CLIENT'))errors.push(e.message)});
 await panel.loadFile(path.join(ROOT,'floating/panel.html'));await wait(panel);await panel.webContents.executeJavaScript(fixture);await panel.webContents.executeJavaScript('reload()');await capture(panel,'tasks');
 assert.equal(await panel.webContents.executeJavaScript(`document.querySelectorAll('.task-row').length`),3);
 await panel.webContents.executeJavaScript(`document.querySelector('.task-check').click()`);await wait(panel,120);assert.equal(await panel.webContents.executeJavaScript(`fixture.tasks[todayKey()][0].done`),true);

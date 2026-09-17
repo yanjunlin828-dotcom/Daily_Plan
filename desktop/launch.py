@@ -1,17 +1,115 @@
 """Silent personal desktop launcher. Uses only Python's standard library."""
 import ctypes
+from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import logging
 import msvcrt
+import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
-import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-STATE = ROOT / '.tmp' / 'launcher'
+APP_DATA_FOLDER = 'Daily Plan'
+LEGACY_DATABASE = ROOT / 'backend' / 'data.db'
 HEALTH = 'http://127.0.0.1:8000/api/health'
+
+
+@dataclass(frozen=True)
+class RuntimePaths:
+    """Writable paths owned by the current Windows user."""
+
+    data_dir: Path
+    database: Path
+    logs: Path
+    state: Path
+
+
+def resolve_runtime_paths(environment=None):
+    """Resolve desktop paths without depending on the install directory."""
+    environment = os.environ if environment is None else environment
+    configured_dir = environment.get('DAILY_PLAN_DATA_DIR')
+    if configured_dir:
+        data_dir = Path(configured_dir).expanduser()
+    else:
+        appdata = environment.get('APPDATA')
+        if appdata:
+            data_dir = Path(appdata) / APP_DATA_FOLDER
+        else:
+            data_dir = Path.home() / 'AppData' / 'Roaming' / APP_DATA_FOLDER
+    configured_database = environment.get('DAILY_PLAN_DB_PATH')
+    database = Path(configured_database).expanduser() if configured_database else data_dir / 'data.db'
+    return RuntimePaths(
+        data_dir=data_dir,
+        database=database,
+        logs=data_dir / 'logs',
+        state=data_dir / 'runtime',
+    )
+
+
+RUNTIME = resolve_runtime_paths()
+STATE = RUNTIME.state
+LOGS = RUNTIME.logs
+DATABASE = RUNTIME.database
+
+
+def ensure_runtime_directories(paths=RUNTIME):
+    paths.database.parent.mkdir(parents=True, exist_ok=True)
+    paths.logs.mkdir(parents=True, exist_ok=True)
+    paths.state.mkdir(parents=True, exist_ok=True)
+
+
+def migrate_legacy_database(source=LEGACY_DATABASE, destination=DATABASE):
+    """Copy a legacy database safely without changing or replacing the source."""
+    source = Path(source)
+    destination = Path(destination)
+    if destination.exists() or not source.is_file():
+        return False
+    if source.resolve() == destination.resolve():
+        return False
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f'.{destination.name}.migrating-{os.getpid()}')
+    if temporary.exists():
+        temporary.unlink()
+    try:
+        # SQLite backup includes committed WAL content and produces a consistent
+        # destination even if the legacy database was not cleanly shut down.
+        source_uri = source.resolve().as_uri() + '?mode=ro'
+        source_connection = sqlite3.connect(source_uri, uri=True)
+        try:
+            destination_connection = sqlite3.connect(temporary)
+            try:
+                source_connection.backup(destination_connection)
+                result = destination_connection.execute('PRAGMA integrity_check').fetchone()
+                if not result or result[0] != 'ok':
+                    raise RuntimeError('迁移后的数据库完整性检查失败。')
+            finally:
+                destination_connection.close()
+        finally:
+            # A sqlite connection context commits or rolls back but does not
+            # close. Windows requires both handles closed before rename/delete.
+            source_connection.close()
+        if destination.exists():
+            temporary.unlink(missing_ok=True)
+            return False
+        temporary.replace(destination)
+        return True
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def desktop_environment(reuse_backend=False):
+    environment = os.environ.copy()
+    if reuse_backend:
+        environment['DAILY_PLAN_EXISTING_BACKEND_PORT'] = '8000'
+    else:
+        environment.pop('DAILY_PLAN_EXISTING_BACKEND_PORT', None)
+    return environment
 
 
 def backend_ready():
@@ -25,31 +123,9 @@ def backend_ready():
         return False
 
 
-def ensure_backend():
-    if backend_ready():
-        logging.info('Reusing healthy backend')
-        return
-    with (STATE / 'backend.log').open('ab') as output:
-        process = subprocess.Popen(
-            [sys.executable, '-m', 'uvicorn', 'main:app', '--app-dir', str(ROOT / 'backend'),
-             '--host', '127.0.0.1', '--port', '8000'],
-            cwd=ROOT, stdin=subprocess.DEVNULL, stdout=output, stderr=output,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        if backend_ready():
-            logging.info('Backend ready, launched PID %s', process.pid)
-            return
-        if process.poll() is not None:
-            raise RuntimeError('后端启动失败，请查看 .tmp/launcher/backend.log。')
-        time.sleep(.4)
-    raise RuntimeError('后端暂未就绪，请稍后重试。详情见 .tmp/launcher/backend.log。')
-
-
 def main():
-    STATE.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=STATE / 'launcher.log', level=logging.INFO,
+    ensure_runtime_directories()
+    logging.basicConfig(filename=LOGS / 'launcher.log', level=logging.INFO,
                         format='%(asctime)s %(message)s', encoding='utf-8')
     # Concurrent desktop/login launches share one startup sequence.
     with (STATE / 'launch.lock').open('a+b') as lock:
@@ -67,11 +143,17 @@ def main():
             electron = ROOT / 'node_modules' / 'electron' / 'dist' / 'electron.exe'
             if not electron.is_file():
                 raise RuntimeError('找不到桌面程序，请在项目目录运行 npm install。')
-            ensure_backend()
+            # If an older backend is already running it may still be writing the
+            # legacy database. Wait for the next cold start before migrating it.
+            reuse_backend = backend_ready()
+            if not reuse_backend and migrate_legacy_database():
+                logging.info('Migrated legacy database from %s to %s at %s',
+                             LEGACY_DATABASE, DATABASE, datetime.now(timezone.utc).isoformat())
             with (STATE / 'desktop.log').open('ab') as output:
                 process = subprocess.Popen([str(electron), str(ROOT)], cwd=ROOT,
                                            stdin=subprocess.DEVNULL, stdout=output, stderr=output,
-                                           creationflags=subprocess.CREATE_NO_WINDOW)
+                                           creationflags=subprocess.CREATE_NO_WINDOW,
+                                           env=desktop_environment(reuse_backend))
             logging.info('Desktop launch requested, PID %s', process.pid)
             return 0
         except Exception as error:

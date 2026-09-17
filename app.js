@@ -9,8 +9,12 @@ const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
 const LONG_PRESS_MS             = 350;
 const LONG_PRESS_MOVE_THRESHOLD = 5;
 
+const CONFIGURED_API_PORT = Number(new URLSearchParams(window.location.search).get('apiPort'));
+const LOCAL_API_PORT = Number.isInteger(CONFIGURED_API_PORT) && CONFIGURED_API_PORT >= 1 && CONFIGURED_API_PORT <= 65535
+  ? CONFIGURED_API_PORT
+  : 8000;
 const API_BASE = window.location.protocol === 'file:'
-  ? 'http://127.0.0.1:8000/api'
+  ? `http://127.0.0.1:${LOCAL_API_PORT}/api`
   : '/api';
 
 // 内存缓存：启动时从后端加载，之后所有读操作均从此处读取，写操作同步更新缓存并异步持久化到后端

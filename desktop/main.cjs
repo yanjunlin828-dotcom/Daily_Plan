@@ -3,12 +3,23 @@ const fs = require('node:fs');
 const {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   nativeImage,
   screen,
   Tray,
 } = require('electron');
+const { appId: APP_USER_MODEL_ID, version: APP_VERSION } = require('../package.json');
+const { BackendManager } = require('./backend-manager.cjs');
+const isSquirrelStartup = require('electron-squirrel-startup');
+
+const desktopProfileDirectory = process.env.DAILY_PLAN_PROFILE_DIR
+  ? path.resolve(process.env.DAILY_PLAN_PROFILE_DIR)
+  : path.join(app.getPath('appData'), 'Daily Plan');
+app.setPath('userData', desktopProfileDirectory);
+app.setAppUserModelId(APP_USER_MODEL_ID);
+if (isSquirrelStartup) app.quit();
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const FLOATING_DIR = path.join(ROOT_DIR, 'floating');
@@ -36,6 +47,9 @@ let awaySince = Date.now();
 let hoverSince = 0;
 let hitTimer = null;
 let ignoringMouse = false;
+let backendManager = null;
+let backendRestarting = false;
+let shutdownStarted = false;
 
 function orbState() {
   orbWindow?.webContents.send('orb:state', { side: dockSide, collapsed });
@@ -95,7 +109,9 @@ function createSafeWindow(options, preload = true) {
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith('file://') && !url.startsWith('http://127.0.0.1:8000/')) {
+    const backendOrigin = backendManager?.port ? backendManager.apiOrigin : null;
+    const allowedBackendUrl = backendOrigin && (url === backendOrigin || url.startsWith(`${backendOrigin}/`));
+    if (!url.startsWith('file://') && !allowedBackendUrl) {
       event.preventDefault();
     }
   });
@@ -135,7 +151,18 @@ function createOrbWindow() {
     title: 'Daily Plan Orb',
   });
   orbWindow.setAlwaysOnTop(true, 'floating');
-  orbWindow.loadFile(path.join(FLOATING_DIR, 'orb.html'));
+  orbWindow.loadFile(path.join(FLOATING_DIR, 'orb.html'), {
+    query: { apiPort: String(backendManager.port) },
+  });
+  orbWindow.webContents.on('context-menu', () => {
+    if (!orbWindow || orbWindow.isDestroyed()) return;
+    Menu.buildFromTemplate([
+      { label: panelOpen ? '收起快捷面板' : '展开快捷面板', click: togglePanel },
+      { label: '打开完整界面', click: createMainWindow },
+      { type: 'separator' },
+      { label: '退出 Daily Plan', click: quitApplication },
+    ]).popup({ window: orbWindow });
+  });
   orbWindow.once('ready-to-show', () => { settleOrb(false); orbWindow?.showInactive(); });
   orbWindow.on('closed', () => {
     stopOrbDrag();
@@ -161,7 +188,9 @@ function createPanelWindow() {
     title: 'Daily Plan Quick Panel',
   });
   panelWindow.setAlwaysOnTop(true, 'floating');
-  panelWindow.loadFile(path.join(FLOATING_DIR, 'panel.html'));
+  panelWindow.loadFile(path.join(FLOATING_DIR, 'panel.html'), {
+    query: { apiPort: String(backendManager.port) },
+  });
   panelWindow.on('blur', () => {
     setTimeout(() => {
       if (panelPinned || !panelOpen || panelWindow?.isFocused() || dragTimer) return;
@@ -239,7 +268,7 @@ function createMainWindow() {
     backgroundColor: '#0f0f0f',
     title: 'Daily Plan',
   }, false);
-  mainWindow.loadURL(`http://127.0.0.1:8000/?desktop=${Date.now()}`);
+  mainWindow.loadURL(`${backendManager.apiOrigin}/?desktop=${Date.now()}`);
   mainWindow.once('ready-to-show', () => mainWindow?.show());
   mainWindow.webContents.once('did-fail-load', () => mainWindow?.show());
   mainWindow.on('closed', () => {
@@ -345,26 +374,103 @@ function registerIpc() {
   });
 }
 
-app.on('second-instance', () => {
-  orbWindow?.showInactive();
-});
+function configuredExistingPort() {
+  const value = Number(process.env.DAILY_PLAN_EXISTING_BACKEND_PORT);
+  return Number.isInteger(value) && value >= 1 && value <= 65535 ? value : null;
+}
 
-app.whenReady().then(() => {
-  registerIpc();
-  createOrbWindow();
-  createPanelWindow();
-  createTray();
-  hitTimer = setInterval(trackOrbPointer, 60);
-  screen.on('display-removed', () => { if (orbWindow) { const p = initialOrbPosition(); orbWindow.setPosition(p.x, p.y); settleOrb(false); } });
-  screen.on('display-metrics-changed', () => { settleOrb(false); if (panelOpen) panelWindow?.setBounds(panelBoundsForOrb()); });
-});
+async function handleUnexpectedBackendExit({ port }) {
+  if (isQuitting || backendRestarting) return;
+  backendRestarting = true;
+  try {
+    await backendManager.start(port);
+    const reloads = [];
+    if (orbWindow && !orbWindow.isDestroyed()) {
+      reloads.push(orbWindow.loadFile(path.join(FLOATING_DIR, 'orb.html'), {
+        query: { apiPort: String(backendManager.port) },
+      }));
+    }
+    if (panelWindow && !panelWindow.isDestroyed()) {
+      reloads.push(panelWindow.loadFile(path.join(FLOATING_DIR, 'panel.html'), {
+        query: { apiPort: String(backendManager.port) },
+      }));
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      reloads.push(mainWindow.loadURL(`${backendManager.apiOrigin}/?desktop=${Date.now()}`));
+    }
+    await Promise.all(reloads);
+  } catch (error) {
+    dialog.showErrorBox(
+      'Daily Plan 后端已停止',
+      `本地数据服务意外退出且无法恢复。\n\n${error.message}\n\n数据不会被删除，请重新启动 Daily Plan。`,
+    );
+    quitApplication();
+  } finally {
+    backendRestarting = false;
+  }
+}
+
+function createBackendManager() {
+  const dataDirectory = process.env.DAILY_PLAN_DATA_DIR
+    ? path.resolve(process.env.DAILY_PLAN_DATA_DIR)
+    : path.join(app.getPath('appData'), 'Daily Plan');
+  return new BackendManager({
+    rootDir: ROOT_DIR,
+    resourcesPath: process.resourcesPath,
+    isPackaged: app.isPackaged,
+    userDataDir: dataDirectory,
+    appVersion: APP_VERSION,
+    existingPort: configuredExistingPort(),
+    legacyDatabase: path.join(ROOT_DIR, 'backend', 'data.db'),
+    onUnexpectedExit: handleUnexpectedBackendExit,
+  });
+}
+
+if (gotSingleInstanceLock) {
+  app.on('second-instance', () => {
+    orbWindow?.showInactive();
+  });
+
+  app.whenReady().then(async () => {
+    try {
+      backendManager = createBackendManager();
+      await backendManager.start();
+      registerIpc();
+      createOrbWindow();
+      createPanelWindow();
+      createTray();
+      hitTimer = setInterval(trackOrbPointer, 60);
+      screen.on('display-removed', () => { if (orbWindow) { const p = initialOrbPosition(); orbWindow.setPosition(p.x, p.y); settleOrb(false); } });
+      screen.on('display-metrics-changed', () => { settleOrb(false); if (panelOpen) panelWindow?.setBounds(panelBoundsForOrb()); });
+      if (process.env.DAILY_PLAN_SMOKE_TEST === '1') {
+        const configuredDelay = Number(process.env.DAILY_PLAN_SMOKE_EXIT_MS);
+        const exitDelay = Number.isInteger(configuredDelay) && configuredDelay >= 250 && configuredDelay <= 60000
+          ? configuredDelay
+          : 1500;
+        setTimeout(quitApplication, exitDelay);
+      }
+    } catch (error) {
+      dialog.showErrorBox(
+        'Daily Plan 启动失败',
+        `${error.message}\n\n请查看 %APPDATA%\\Daily Plan\\logs\\backend.log。`,
+      );
+      isQuitting = true;
+      app.quit();
+    }
+  });
+}
 
 // Tray owns the application lifetime; closing all content windows should not quit it.
 app.on('window-all-closed', () => {});
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
   clearInterval(hitTimer);
   clearTimeout(closeTimer);
   isQuitting = true;
   stopOrbDrag();
+  if (!shutdownStarted && backendManager?.owned) {
+    event.preventDefault();
+    shutdownStarted = true;
+    backendManager.stop().finally(() => app.quit());
+  }
 });

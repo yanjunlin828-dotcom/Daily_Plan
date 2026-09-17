@@ -18,6 +18,20 @@ def api(tmp_path, monkeypatch):
     sys.modules.pop("backend.main", None)
 
 
+def test_data_directory_controls_default_database(tmp_path, monkeypatch):
+    data_dir = tmp_path / "desktop-data"
+    monkeypatch.setenv("DAILY_PLAN_DATA_DIR", str(data_dir))
+    monkeypatch.delenv("DAILY_PLAN_DB_PATH", raising=False)
+    sys.modules.pop("backend.main", None)
+    module = importlib.import_module("backend.main")
+    try:
+        assert module.DATA_DIR == data_dir
+        assert module.DB_PATH == data_dir / "data.db"
+        assert module.DB_PATH.is_file()
+    finally:
+        sys.modules.pop("backend.main", None)
+
+
 def test_bucket_revision_rejects_stale_writer(api):
     client, _, _ = api
     initial = client.get("/api/data").json()
@@ -224,7 +238,15 @@ def test_migration_only_runs_against_empty_database(api):
 
 
 def test_frontend_whitelist_and_cors(api):
-    client, _, _ = api
+    client, module, _ = api
+    health = client.get("/api/health")
+    assert health.status_code == 200
+    assert health.json() == {
+        "ok": True,
+        "appId": "daily-plan",
+        "appVersion": module.APP_VERSION,
+        "apiVersion": 2,
+    }
     assert client.get("/").status_code == 200
     assert client.get("/app.js").status_code == 200
     assert client.get("/style.css").status_code == 200

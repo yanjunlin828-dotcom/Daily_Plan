@@ -1,5 +1,9 @@
 (function exposeDailyPlanApi(global) {
-  const baseUrl = global.location.protocol === 'file:' ? 'http://127.0.0.1:8000/api' : '/api';
+  const configuredPort = Number(new URLSearchParams(global.location.search).get('apiPort'));
+  const localPort = Number.isInteger(configuredPort) && configuredPort >= 1 && configuredPort <= 65535
+    ? configuredPort
+    : 8000;
+  const baseUrl = global.location.protocol === 'file:' ? `http://127.0.0.1:${localPort}/api` : '/api';
 
   async function request(method, path, body) {
     const response = await fetch(`${baseUrl}${path}`, {

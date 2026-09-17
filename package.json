@@ -1,15 +1,35 @@
 {
   "name": "daily-plan-desktop",
+  "productName": "Daily Plan",
+  "appId": "com.squirrel.DailyPlan.DailyPlan",
   "version": "0.1.0",
   "private": true,
   "description": "Daily Plan 的个人桌面悬浮球",
+  "author": "yanjunlin828-dotcom",
   "main": "desktop/main.cjs",
   "scripts": {
+    "backend:build": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop/build-backend.ps1",
+    "backend:smoke": "python tests/smoke_packaged_backend.py",
+    "backend:manager:test": "node --test tests/backend-manager.test.cjs",
+    "package": "electron-forge package --platform=win32 --arch=x64",
+    "make": "npm run backend:build && electron-forge package --platform=win32 --arch=x64 && node desktop/make-installer.cjs && npm run installer:verify",
+    "release:verify": "node desktop/verify-release.cjs \"output/forge/Daily Plan-win32-x64\"",
+    "installer:verify": "node desktop/verify-installer.cjs",
     "desktop": "electron .",
     "desktop:debug": "electron . --enable-logging",
-    "desktop:smoke": "electron desktop/smoke.cjs"
+    "desktop:smoke": "electron desktop/smoke.cjs",
+    "desktop:native-smoke": "electron desktop/native-smoke.cjs",
+    "desktop:singleton-smoke": "node tests/smoke_single_instance.cjs",
+    "desktop:packaged-singleton-smoke": "node tests/smoke_single_instance.cjs \"output/forge/Daily Plan-win32-x64/Daily Plan.exe\"",
+    "desktop:packaged-smoke": "node tests/smoke_packaged_desktop.cjs"
   },
   "devDependencies": {
-    "electron": "44.3.0"
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-squirrel": "7.11.2",
+    "electron": "44.3.0",
+    "electron-winstaller": "5.4.4"
+  },
+  "dependencies": {
+    "electron-squirrel-startup": "1.0.1"
   }
 }
